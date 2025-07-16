@@ -1,10 +1,23 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { PostgresModule } from './postgres/postgres.module';
+import { ConfigModule } from '@nestjs/config';
+import { UserModule } from './user/user.module';
+import { AuthModule } from './auth/auth.module';
+import { BookModule } from './book/book.module';
+import { GenreModule } from './genre/genre.module';
+import { AuthorModule } from './author/author.module';
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    PostgresModule,
+    ConfigModule.forRoot({ isGlobal: true }),
+    UserModule,
+    AuthModule,
+    BookModule,
+    GenreModule,
+    AuthorModule,
+  ],
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}
