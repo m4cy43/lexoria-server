@@ -1,5 +1,5 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToMany } from 'typeorm';
-import { Book } from 'src/book/entities/book.entity';
+import { Book } from '../../book/entities/book.entity';
 
 @Entity('authors')
 export class Author {
@@ -8,9 +8,6 @@ export class Author {
 
   @Column()
   name: string;
-
-  @Column({ type: 'text', nullable: true })
-  bio: string;
 
   @ManyToMany(() => Book, (book) => book.authors)
   books: Book[];

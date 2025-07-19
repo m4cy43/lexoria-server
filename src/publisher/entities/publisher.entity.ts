@@ -1,14 +1,14 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToMany } from 'typeorm';
 import { Book } from '../../book/entities/book.entity';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
 
-@Entity('genres')
-export class Genre {
+@Entity('publishers')
+export class Publisher {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ unique: true })
   name: string;
 
-  @ManyToMany(() => Book, (book) => book.genres)
+  @OneToMany(() => Book, (book) => book.publisher)
   books: Book[];
 }

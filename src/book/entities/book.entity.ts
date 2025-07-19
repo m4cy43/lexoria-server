@@ -4,9 +4,11 @@ import {
   Column,
   ManyToMany,
   JoinTable,
+  ManyToOne,
 } from 'typeorm';
-import { Author } from 'src/author/entities/author.entity';
-import { Genre } from 'src/genre/entities/genre.entity';
+import { Author } from '../../author/entities/author.entity';
+import { Genre } from '../../genre/entities/genre.entity';
+import { Publisher } from '../../publisher/entities/publisher.entity';
 
 @Entity('books')
 export class Book {
@@ -14,19 +16,16 @@ export class Book {
   id: string;
 
   @Column()
-  name: string;
-
-  @Column({ type: 'numeric', precision: 2, scale: 1, nullable: true })
-  starRating: number;
-
-  @Column({ type: 'int', default: 0 })
-  numRatings: number;
+  title: string;
 
   @Column({ type: 'text', nullable: true })
-  summary: string;
+  description: string;
 
   @Column({ type: 'date', nullable: true })
-  firstPublished: Date;
+  publishedDate: Date;
+
+  @Column({ nullable: true })
+  imageUrl: string;
 
   @ManyToMany(() => Author, (author) => author.books, { cascade: true })
   @JoinTable({
@@ -43,4 +42,7 @@ export class Book {
     inverseJoinColumn: { name: 'genre', referencedColumnName: 'id' },
   })
   genres: Genre[];
+
+  @ManyToOne(() => Publisher, (publisher) => publisher.books, { cascade: true })
+  publisher: Publisher;
 }
