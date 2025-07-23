@@ -1,11 +1,12 @@
 import {
-  Entity,
-  PrimaryGeneratedColumn,
   Column,
-  ManyToMany,
+  Entity,
   JoinTable,
+  ManyToMany,
   ManyToOne,
+  PrimaryGeneratedColumn,
 } from 'typeorm';
+
 import { Author } from '../../author/entities/author.entity';
 import { Genre } from '../../genre/entities/genre.entity';
 import { Publisher } from '../../publisher/entities/publisher.entity';

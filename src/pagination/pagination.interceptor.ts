@@ -1,3 +1,5 @@
+import { Observable, map } from 'rxjs';
+
 import {
   BadRequestException,
   CallHandler,
@@ -5,7 +7,7 @@ import {
   Injectable,
   NestInterceptor,
 } from '@nestjs/common';
-import { map, Observable } from 'rxjs';
+
 import {
   ItemsWithTotal,
   PaginatedResponse,

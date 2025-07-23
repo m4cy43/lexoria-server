@@ -1,6 +1,7 @@
-import { DataSourceOptions } from 'typeorm';
-import { ConfigService } from '@nestjs/config';
 import { join } from 'path';
+import { DataSourceOptions } from 'typeorm';
+
+import { ConfigService } from '@nestjs/config';
 
 export const createPostgresDataSourceOptions = (
   configService: ConfigService,
