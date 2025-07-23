@@ -4,7 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { AuthorModule } from './author/author.module';
 import { BookModule } from './book/book.module';
-import { GenreModule } from './genre/genre.module';
+import { CategoryModule } from './category/category.module';
 import { ImportModule } from './import/import.module';
 import { PostgresModule } from './postgres/postgres.module';
 import { PublisherModule } from './publisher/publisher.module';
@@ -17,7 +17,7 @@ import { UserModule } from './user/user.module';
     UserModule,
     AuthModule,
     BookModule,
-    GenreModule,
+    CategoryModule,
     AuthorModule,
     PublisherModule,
     ImportModule,

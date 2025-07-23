@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 
 import { Author } from '../../author/entities/author.entity';
-import { Genre } from '../../genre/entities/genre.entity';
+import { Category } from '../../category/entities/category.entity';
 import { Publisher } from '../../publisher/entities/publisher.entity';
 
 @Entity('books')
@@ -36,13 +36,13 @@ export class Book {
   })
   authors: Author[];
 
-  @ManyToMany(() => Genre, (genre) => genre.books, { cascade: true })
+  @ManyToMany(() => Category, (category) => category.books, { cascade: true })
   @JoinTable({
-    name: 'book_genres',
+    name: 'book_categories',
     joinColumn: { name: 'book', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'genre', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category', referencedColumnName: 'id' },
   })
-  genres: Genre[];
+  categories: Category[];
 
   @ManyToOne(() => Publisher, (publisher) => publisher.books, { cascade: true })
   publisher: Publisher;

@@ -1,5 +1,5 @@
 import { Author } from '../../author/interfaces/author.interface';
-import { Genre } from '../../genre/interfaces/genre.interface';
+import { Category } from '../../category/interfaces/category.interface';
 import { Publisher } from '../../publisher/interfaces/publisher.interface';
 
 export interface Book {
@@ -9,6 +9,6 @@ export interface Book {
   publishedDate?: Date;
   imageUrl?: string;
   authors: Author[];
-  genres: Genre[];
+  categories: Category[];
   publisher?: Publisher;
 }

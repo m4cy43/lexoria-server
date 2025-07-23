@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { Author } from '../author/entities/author.entity';
 import { Book } from '../book/entities/book.entity';
-import { Genre } from '../genre/entities/genre.entity';
+import { Category } from '../category/entities/category.entity';
 import { Publisher } from '../publisher/entities/publisher.entity';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class ImportService {
   constructor(
     @InjectRepository(Book) private bookRepo: Repository<Book>,
     @InjectRepository(Author) private authorRepo: Repository<Author>,
-    @InjectRepository(Genre) private genreRepo: Repository<Genre>,
+    @InjectRepository(Category) private categoryRepo: Repository<Category>,
     @InjectRepository(Publisher) private publisherRepo: Repository<Publisher>,
   ) {}
 
@@ -63,16 +63,16 @@ export class ImportService {
         }
       }
 
-      const genreEntities: Genre[] = [];
+      const categoryEntities: Category[] = [];
       if (categories) {
-        const genreNames = this.parseCsvStringArrays(categories);
-        for (const name of genreNames) {
-          let genre = await this.genreRepo.findOneBy({ name });
-          if (!genre) {
-            genre = this.genreRepo.create({ name });
-            await this.genreRepo.save(genre);
+        const categoryNames = this.parseCsvStringArrays(categories);
+        for (const name of categoryNames) {
+          let category = await this.categoryRepo.findOneBy({ name });
+          if (!category) {
+            category = this.categoryRepo.create({ name });
+            await this.categoryRepo.save(category);
           }
-          genreEntities.push(genre);
+          categoryEntities.push(category);
         }
       }
 
@@ -83,7 +83,7 @@ export class ImportService {
         publishedDate: this.parsePublishedDate(publishedDate),
         publisher: publisherEntity || null,
         authors: authorEntities,
-        genres: genreEntities,
+        categories: categoryEntities,
       });
 
       await this.bookRepo.save(book);

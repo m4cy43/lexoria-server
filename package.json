@@ -20,7 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "npm run typeorm -- migration:generate -d src/postgres/postgres.data-source.ts",
-    "migration:create": "npm run typeorm -- migration:create -d src/postgres/postgres.data-source.ts",
+    "migration:create": "npm run typeorm -- migration:create",
     "migration:run": "npm run typeorm -- migration:run -d src/postgres/postgres.data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/postgres/postgres.data-source.ts",
     "migration:show": "npm run typeorm -- migration:show -d src/postgres/postgres.data-source.ts",
