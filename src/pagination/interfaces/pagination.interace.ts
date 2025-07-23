@@ -1,11 +1,5 @@
 export type SortDirection = 'ASC' | 'DESC';
 
-export interface PaginationQueries {
-  page?: string;
-  limit?: string;
-  sort?: string;
-}
-
 export interface PaginatedResponse<T> {
   data: T[];
   meta: PaginationMeta;
@@ -27,6 +21,12 @@ export interface PaginationOptions {
   limit: number;
   skip?: number;
   sort?: Record<string, SortDirection>;
+}
+
+export interface PaginationQueries {
+  page?: string;
+  limit?: string;
+  sort?: string;
 }
 
 export interface ItemsWithTotal<T> {
