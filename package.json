@@ -19,13 +19,13 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm": "typeorm-ts-node-commonjs",
-    "migration:generate": "npm run typeorm -- migration:generate -d data-source.ts",
-    "migration:create": "npm run typeorm -- migration:create -d data-source.ts",
-    "migration:run": "npm run typeorm -- migration:run -d data-source.ts",
-    "migration:revert": "npm run typeorm -- migration:revert -d data-source.ts",
-    "migration:show": "npm run typeorm -- migration:show -d data-source.ts",
-    "schema:drop": "npm run typeorm -- schema:drop -d data-source.ts",
-    "schema:sync": "npm run typeorm -- schema:sync -d data-source.ts"
+    "migration:generate": "npm run typeorm -- migration:generate -d src/postgres/postgres.data-source.ts",
+    "migration:create": "npm run typeorm -- migration:create -d src/postgres/postgres.data-source.ts",
+    "migration:run": "npm run typeorm -- migration:run -d src/postgres/postgres.data-source.ts",
+    "migration:revert": "npm run typeorm -- migration:revert -d src/postgres/postgres.data-source.ts",
+    "migration:show": "npm run typeorm -- migration:show -d src/postgres/postgres.data-source.ts",
+    "schema:drop": "npm run typeorm -- schema:drop -d src/postgres/postgres.data-source.ts",
+    "schema:sync": "npm run typeorm -- schema:sync -d src/postgres/postgres.data-source.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
