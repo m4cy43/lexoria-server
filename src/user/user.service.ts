@@ -60,13 +60,13 @@ export class UserService {
       throw new ConflictException('User with this email already exists');
     }
 
-    return this.userRepository.create(user);
+    const newUser = this.userRepository.create(user);
+    return this.userRepository.save(newUser);
   }
 
   async update(id: string, user: UpdateUserDto): Promise<void> {
     await this.getById(id);
 
-    // Check email uniqueness if email is being updated
     if (user.email) {
       const existingUser = await this.getByEmail(user.email);
       if (existingUser && existingUser.id !== id) {
