@@ -8,7 +8,7 @@ import {
 import {
   PaginationOptions,
   SortDirection,
-} from './interfaces/pagination.interace';
+} from '../interfaces/pagination.interface';
 
 @Injectable()
 export class PaginationPipe implements PipeTransform {

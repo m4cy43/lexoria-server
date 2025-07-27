@@ -12,7 +12,7 @@ import {
   ItemsWithTotal,
   PaginatedResponse,
   PaginationOptions,
-} from './interfaces/pagination.interace';
+} from '../interfaces/pagination.interface';
 
 @Injectable()
 export class PaginationInterceptor<T> implements NestInterceptor {
