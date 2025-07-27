@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Post,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -20,6 +21,7 @@ export class AuthController {
     private readonly userService: UserService,
   ) {}
 
+  @Post('register')
   async register(@Body() body: RegisterDto) {
     const { password, passwordConfirm } = body;
 
@@ -41,6 +43,7 @@ export class AuthController {
     return { accessToken: token };
   }
 
+  @Post('login')
   async login(@Body() body: LoginDto) {
     const { email, password } = body;
 
