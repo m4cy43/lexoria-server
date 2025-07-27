@@ -1,0 +1,77 @@
+import { Repository } from 'typeorm';
+
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { User } from './entities/user.entity';
+
+@Injectable()
+export class UserService {
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
+
+  async getById(id: string): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id: id } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return user;
+  }
+
+  async getByEmail(
+    email: string,
+    includePassword: boolean = false,
+  ): Promise<User> {
+    let user: User | null;
+
+    if (includePassword) {
+      user = await this.userRepository
+        .createQueryBuilder('user')
+        .where('user.email = :email', { email })
+        .addSelect('user.password')
+        .getOne();
+    } else {
+      user = await this.userRepository.findOne({
+        where: { email },
+      });
+    }
+
+    if (!user) {
+      throw new NotFoundException(`User with email ${email} not found`);
+    }
+
+    return user;
+  }
+
+  async create(user: CreateUserDto): Promise<User> {
+    const existingUser = await this.getByEmail(user.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    return this.userRepository.create(user);
+  }
+
+  async update(id: string, user: UpdateUserDto): Promise<void> {
+    await this.getById(id);
+
+    // Check email uniqueness if email is being updated
+    if (user.email) {
+      const existingUser = await this.getByEmail(user.email);
+      if (existingUser && existingUser.id !== id) {
+        throw new ConflictException('User with this email already exists');
+      }
+    }
+
+    await this.userRepository.update(id, user);
+  }
+}
