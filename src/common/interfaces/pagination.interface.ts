@@ -1,28 +1,25 @@
+import { SortDirection } from 'typeorm';
+
 export interface PaginationOptions {
   page: number;
   limit: number;
   skip: number;
 }
 
-export enum SortDirection {
-  ASC = 'asc',
-  DESC = 'desc',
-}
-
 export interface SortOptions {
   [field: string]: SortDirection;
 }
 
-export interface FilterOperator {
-  eq?: any;
-  ne?: any;
-  gt?: any;
-  gte?: any;
-  lt?: any;
-  lte?: any;
+export interface FilterOperator<T = any> {
+  eq?: T;
+  ne?: T;
+  gt?: T;
+  gte?: T;
+  lt?: T;
+  lte?: T;
   like?: string;
-  in?: any[];
-  between?: [any, any];
+  in?: T[];
+  between?: [T, T];
 }
 
 export interface FilterOptions {
