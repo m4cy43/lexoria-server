@@ -1,4 +1,5 @@
 import * as compression from 'compression';
+import * as cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 
 import { ValidationPipe } from '@nestjs/common';
@@ -23,6 +24,8 @@ async function bootstrap() {
       stopAtFirstError: false,
     }),
   );
+
+  app.use(cookieParser());
 
   app.enableCors({
     origin: '*',

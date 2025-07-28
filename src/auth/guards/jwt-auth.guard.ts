@@ -27,7 +27,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    const token = this.extractToken(request);
 
     if (!token) {
       throw new UnauthorizedException('Token not found');
@@ -42,8 +42,13 @@ export class JwtAuthGuard implements CanActivate {
     }
   }
 
-  private extractTokenFromHeader(request: any): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
+  private extractToken(request: any): string | undefined {
+    const cookieToken = request.cookies?.access_token;
+    if (cookieToken) {
+      return cookieToken;
+    }
+
+    const [type, headerToken] = request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? headerToken : undefined;
   }
 }
