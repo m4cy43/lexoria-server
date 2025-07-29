@@ -2,35 +2,35 @@ import * as bcrypt from 'bcrypt';
 import { JwtPayload } from 'src/jwt/interfaces/jwt-payload.interface';
 import { Role, User } from 'src/user/interfaces/user.interface';
 
-import {
-  BadRequestException,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { Injectable } from '@nestjs/common';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 
 @Injectable()
 export class AuthService {
   constructor(private readonly jwtService: JwtService) {}
 
-  async signToken(user: User) {
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      roles: user.roles || [Role.USER],
-    };
+  async signToken(user: User | JwtPayload, jwtSignOptions?: JwtSignOptions) {
+    let payload: JwtPayload;
 
-    const token = await this.jwtService.signAsync(payload);
+    if ('id' in user) {
+      payload = {
+        sub: user.id,
+        email: user.email,
+        roles: user.roles || [Role.USER],
+      };
+    } else {
+      payload = {
+        sub: user.sub,
+        email: user.email,
+        roles: user.roles || [Role.USER],
+      };
+    }
+
+    const token = jwtSignOptions
+      ? await this.jwtService.signAsync(payload, jwtSignOptions)
+      : await this.jwtService.signAsync(payload);
 
     return token;
-  }
-
-  async verifyToken(token: string) {
-    try {
-      return await this.jwtService.verifyAsync(token);
-    } catch {
-      throw new UnauthorizedException('Invalid token');
-    }
   }
 
   async hashPassword(password: string) {

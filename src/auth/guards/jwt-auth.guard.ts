@@ -4,6 +4,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 
@@ -13,6 +14,7 @@ export const IS_PUBLIC_KEY = 'isPublic';
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
     private readonly reflector: Reflector,
   ) {}
 
@@ -33,8 +35,12 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token not found');
     }
 
+    const accessSecret = this.configService.get<string>('ACCESS_JWT_SECRET');
+
     try {
-      const payload = await this.jwtService.verifyAsync(token);
+      const payload = await this.jwtService.verifyAsync(token, {
+        secret: accessSecret,
+      });
       request.user = payload;
       return true;
     } catch {
@@ -43,7 +49,8 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   private extractToken(request: any): string | undefined {
-    const cookieToken = request.cookies?.access_token;
+    const cookieToken =
+      request.cookies?.accessToken || request.cookies?.jwtToken;
     if (cookieToken) {
       return cookieToken;
     }

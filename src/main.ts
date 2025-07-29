@@ -37,12 +37,13 @@ async function bootstrap() {
   app.use(compression());
 
   const config = new DocumentBuilder()
+    .addCookieAuth()
+    .addBearerAuth()
     .setTitle('Lexoria API docs')
     .setDescription('The Lexoria API documentation')
     .setVersion('1.0')
     .addTag('lexoria')
     .build();
-
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, documentFactory);
 
