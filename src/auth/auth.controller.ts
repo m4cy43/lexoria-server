@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { CookieOptions, Response } from 'express';
 import * as ms from 'ms';
 import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { User } from 'src/user/interfaces/user.interface';
@@ -52,35 +52,45 @@ export class AuthController {
   }
 
   private async signTokens(payload: User | JwtPayload) {
-    const accessToken = await this.authService.signToken(payload, {
-      secret: this.accessSecret,
-      expiresIn: this.accessExpiresIn,
-    });
-    const refreshToken = await this.authService.signToken(payload, {
-      secret: this.refreshSecret,
-      expiresIn: this.refreshExpiresIn,
-    });
-
+    const [accessToken, refreshToken] = await Promise.all([
+      this.authService.signToken(payload, {
+        secret: this.accessSecret,
+        expiresIn: this.accessExpiresIn,
+      }),
+      this.authService.signToken(payload, {
+        secret: this.refreshSecret,
+        expiresIn: this.refreshExpiresIn,
+      }),
+    ]);
     return { accessToken, refreshToken };
   }
 
-  private async setTokensInCookies(
-    res: Response,
-    tokens: { accessToken: string; refreshToken: string },
-  ) {
-    res.cookie('accessToken', tokens.accessToken, {
+  private getCookieOptions(expiresIn: ms.StringValue): CookieOptions {
+    return {
       httpOnly: true,
-      maxAge: ms(this.accessExpiresIn),
+      maxAge: ms(expiresIn),
       sameSite: 'lax',
       secure: this.isProd,
-    });
+    };
+  }
 
-    res.cookie('refreshToken', tokens.accessToken, {
-      httpOnly: true,
-      maxAge: ms(this.refreshExpiresIn),
-      sameSite: 'lax',
-      secure: this.isProd,
-    });
+  private setTokensInCookies(
+    res: Response,
+    {
+      accessToken,
+      refreshToken,
+    }: { accessToken: string; refreshToken: string },
+  ) {
+    res.cookie(
+      'accessToken',
+      accessToken,
+      this.getCookieOptions(this.accessExpiresIn),
+    );
+    res.cookie(
+      'refreshToken',
+      refreshToken,
+      this.getCookieOptions(this.refreshExpiresIn),
+    );
   }
 
   @Post('register')

@@ -10,27 +10,13 @@ export class AuthService {
   constructor(private readonly jwtService: JwtService) {}
 
   async signToken(user: User | JwtPayload, jwtSignOptions?: JwtSignOptions) {
-    let payload: JwtPayload;
+    const payload: JwtPayload = {
+      sub: 'id' in user ? user.id : user.sub,
+      email: user.email,
+      roles: user.roles || [Role.USER],
+    };
 
-    if ('id' in user) {
-      payload = {
-        sub: user.id,
-        email: user.email,
-        roles: user.roles || [Role.USER],
-      };
-    } else {
-      payload = {
-        sub: user.sub,
-        email: user.email,
-        roles: user.roles || [Role.USER],
-      };
-    }
-
-    const token = jwtSignOptions
-      ? await this.jwtService.signAsync(payload, jwtSignOptions)
-      : await this.jwtService.signAsync(payload);
-
-    return token;
+    return this.jwtService.signAsync(payload, jwtSignOptions);
   }
 
   async hashPassword(password: string) {
