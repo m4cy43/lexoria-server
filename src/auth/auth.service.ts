@@ -1,5 +1,5 @@
 import * as bcrypt from 'bcrypt';
-import { JwtPayload } from 'src/jwt/interfaces/jwt-payload.interface';
+import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { Role, User } from 'src/user/interfaces/user.interface';
 
 import { Injectable } from '@nestjs/common';
