@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import ms from 'ms';
+import * as ms from 'ms';
 import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { User } from 'src/user/interfaces/user.interface';
 import { UserService } from 'src/user/user.service';
