@@ -1,14 +1,21 @@
+import { IsOptional, IsString } from 'class-validator';
 import { BaseQueryDto } from 'src/common/dto/query.dto';
 import { SortDirection } from 'typeorm';
 
-export interface BookSort extends Record<string, SortDirection> {
+export interface BookSort {
   title?: SortDirection;
-  publishedAt?: SortDirection;
+  publishedDate?: SortDirection;
 }
 
 export interface BookFilters {
-  title?: string;
-  category?: string | string[];
+  categories?: string[];
+  authors?: string[];
+  publishers?: string | string[];
+  publishedDateRange?: string[];
 }
 
-export class BookQueryDto extends BaseQueryDto<BookSort, BookFilters> {}
+export class BookQueryDto extends BaseQueryDto<BookSort, BookFilters> {
+  @IsString()
+  @IsOptional()
+  search?: string;
+}
