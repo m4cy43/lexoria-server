@@ -7,13 +7,13 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
+import { GlobalQueryPipe } from './common/pipes/global-query.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.getHttpAdapter().getInstance().set('query parser', 'extended');
-
   app.useGlobalPipes(
+    new GlobalQueryPipe(),
     new ValidationPipe({
       transform: true,
       whitelist: true,

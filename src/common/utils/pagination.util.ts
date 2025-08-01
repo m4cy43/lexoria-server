@@ -1,12 +1,12 @@
 import {
   ItemsWithTotal,
   PaginatedResponse,
-  QueryOptions,
 } from '../interfaces/pagination.interface';
+import { QueryOptions } from '../interfaces/query.interface';
 
-export function buildPaginatedResponse<T>(
+export function buildPaginatedResponse<T = any, S = any, F = any>(
   data: ItemsWithTotal<T>,
-  meta: QueryOptions,
+  meta: QueryOptions<S, F>,
 ): PaginatedResponse<T> {
   const { items, total } = data;
   const { pagination, filters, sort } = meta;

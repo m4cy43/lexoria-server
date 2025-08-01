@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsObject, IsOptional, ValidateNested } from 'class-validator';
 
-import { FilterOperator } from '../interfaces/pagination.interface';
+import { TFilterOptions, TSortOptions } from '../interfaces/query.interface';
 
 export class PaginationDto {
   @Type(() => Number)
@@ -19,16 +19,11 @@ export class BaseQueryDto<
 > {
   @IsOptional()
   @IsObject()
-  sort?: Partial<TSort>;
+  sort?: TSortOptions<TSort>;
 
   @IsOptional()
   @IsObject()
-  filters?: Partial<{
-    [K in keyof TFilters]:
-      | TFilters[K]
-      | FilterOperator<TFilters[K]>
-      | (TFilters[K] | FilterOperator<TFilters[K]>)[];
-  }>;
+  filters?: TFilterOptions<TFilters>;
 
   @IsOptional()
   @ValidateNested()

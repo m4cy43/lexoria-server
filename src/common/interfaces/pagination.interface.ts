@@ -1,52 +1,20 @@
-import { SortDirection } from 'typeorm';
+import { TFilterOptions, TSortOptions } from './query.interface';
 
-export interface PaginationOptions {
-  page: number;
-  limit: number;
-  skip: number;
-}
-
-export interface SortOptions {
-  [field: string]: SortDirection;
-}
-
-export interface FilterOperator<T = any> {
-  eq?: T;
-  ne?: T;
-  gt?: T;
-  gte?: T;
-  lt?: T;
-  lte?: T;
-  like?: string;
-  in?: T[];
-  between?: [T, T];
-}
-
-export interface FilterOptions {
-  [field: string]: FilterOperator | any;
-}
-
-export interface QueryOptions {
-  pagination?: PaginationOptions;
-  sort?: SortOptions;
-  filters?: FilterOptions;
-}
-
-export interface PaginationMeta {
+export interface PaginationMeta<S = any, F = any> {
   currentPage: number;
   totalPages: number;
   totalItems: number;
   itemsPerPage: number;
   itemsInPage?: number;
-  sortOptions?: SortOptions;
-  filterOptions?: FilterOptions;
+  sortOptions?: TSortOptions<S>;
+  filterOptions?: TFilterOptions<F>;
   hasNextPage?: boolean;
   hasPrevPage?: boolean;
 }
 
-export interface PaginatedResponse<T> {
+export interface PaginatedResponse<T = any, S = any, F = any> {
   data: T[];
-  meta: PaginationMeta;
+  meta: PaginationMeta<S, F>;
 }
 
 export interface ItemsWithTotal<T> {
