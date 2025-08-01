@@ -11,6 +11,10 @@ export class PaginationDto {
   @Type(() => Number)
   @IsOptional()
   limit?: number = 10;
+
+  @Type(() => Number)
+  @IsOptional()
+  skip?: number;
 }
 
 export class BaseQueryDto<

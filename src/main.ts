@@ -12,6 +12,11 @@ import { GlobalQueryPipe } from './common/pipes/global-query.pipe';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .set('query parser', (q) => q);
+
   app.useGlobalPipes(
     new GlobalQueryPipe(),
     new ValidationPipe({

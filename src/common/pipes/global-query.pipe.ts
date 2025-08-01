@@ -9,8 +9,14 @@ export class GlobalQueryPipe implements PipeTransform {
       return value;
     }
 
+    console.log(value);
+
     if (typeof value === 'string') {
-      value = qs.parse(value, { allowDots: true });
+      value = qs.parse(value, {
+        allowDots: true,
+        comma: true,
+        parseArrays: true,
+      });
     }
 
     const pagination = value?.pagination;
@@ -19,6 +25,8 @@ export class GlobalQueryPipe implements PipeTransform {
       const limit = Number(pagination.limit ?? 10);
       pagination.skip = (page - 1) * limit;
     }
+
+    console.log(value);
 
     return value;
   }
