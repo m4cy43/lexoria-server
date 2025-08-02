@@ -143,7 +143,6 @@ export class AuthController {
   }
 
   @Post('refresh')
-  @ApiBearerAuth()
   @UseGuards(JwtRefreshGuard)
   async refresh(
     @CurrentUser() payload: JwtPayload,
@@ -152,6 +151,18 @@ export class AuthController {
     const tokens = await this.signTokens(payload);
     await this.setTokensInCookies(res, tokens);
     return tokens;
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  async logout(@Res({ passthrough: true }) res: Response) {
+    res.clearCookie('accessToken', this.getCookieOptions(this.accessExpiresIn));
+    res.clearCookie(
+      'refreshToken',
+      this.getCookieOptions(this.refreshExpiresIn),
+    );
+
+    return { message: 'Logged out successfully' };
   }
 
   @Get('me')
