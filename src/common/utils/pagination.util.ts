@@ -7,9 +7,9 @@ import { QueryOptions } from '../interfaces/query.interface';
 export function buildPaginatedResponse<T = any, S = any, F = any>(
   data: ItemsWithTotal<T>,
   meta: QueryOptions<S, F>,
-): PaginatedResponse<T> {
+): PaginatedResponse<T, S, F> {
   const { items, total } = data;
-  const { pagination, filters, sort } = meta;
+  const { pagination, filter, sort } = meta;
   const { page, limit } = pagination;
 
   const totalPages = Math.ceil(total / limit);
@@ -26,7 +26,7 @@ export function buildPaginatedResponse<T = any, S = any, F = any>(
       itemsPerPage: limit,
       itemsInPage,
       sortOptions: sort,
-      filterOptions: filters,
+      filterOptions: filter,
       hasNextPage,
       hasPrevPage,
     },

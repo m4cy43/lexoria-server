@@ -17,7 +17,7 @@ export interface PaginatedResponse<T = any, S = any, F = any> {
   meta: PaginationMeta<S, F>;
 }
 
-export interface ItemsWithTotal<T> {
+export interface ItemsWithTotal<T = any> {
   items: T[];
   total: number;
 }

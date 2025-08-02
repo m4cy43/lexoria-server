@@ -1,34 +1,31 @@
 import { Type } from 'class-transformer';
-import { IsObject, IsOptional, ValidateNested } from 'class-validator';
+import { IsOptional, IsString, ValidateNested } from 'class-validator';
 
-import { TFilterOptions, TSortOptions } from '../interfaces/query.interface';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PaginationDto {
+  @ApiPropertyOptional({ example: 1 })
   @Type(() => Number)
   @IsOptional()
   page?: number = 1;
 
+  @ApiPropertyOptional({ example: 10 })
   @Type(() => Number)
   @IsOptional()
   limit?: number = 10;
 
   @Type(() => Number)
   @IsOptional()
-  skip?: number;
+  skip?: number = 0;
 }
 
-export class BaseQueryDto<
-  TSort extends object = any,
-  TFilters extends object = any,
-> {
+export class BaseQueryDto {
+  @ApiPropertyOptional()
   @IsOptional()
-  @IsObject()
-  sort?: TSortOptions<TSort>;
+  @IsString()
+  search?: string;
 
-  @IsOptional()
-  @IsObject()
-  filters?: TFilterOptions<TFilters>;
-
+  @ApiPropertyOptional()
   @IsOptional()
   @ValidateNested()
   @Type(() => PaginationDto)

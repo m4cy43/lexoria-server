@@ -1,5 +1,3 @@
-import { SortDirection } from 'typeorm';
-
 export interface PaginationOptions {
   page: number;
   limit: number;
@@ -21,7 +19,7 @@ export interface FilterOperator<T = any> {
 export interface QueryOptions<S = any, F = any> {
   pagination?: PaginationOptions;
   sort?: TSortOptions<S>;
-  filters?: TFilterOptions<F>;
+  filter?: TFilterOptions<F>;
 }
 
 export type TSortOptions<T> = Partial<{
@@ -31,3 +29,8 @@ export type TSortOptions<T> = Partial<{
 export type TFilterOptions<T> = Partial<{
   [K in keyof T]: T[K] | FilterOperator<T[K]> | (T[K] | FilterOperator<T[K]>)[];
 }>;
+
+export enum SortDirection {
+  ASC = 'asc',
+  DESC = 'desc',
+}
