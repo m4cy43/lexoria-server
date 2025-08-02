@@ -6,7 +6,7 @@ import {
   IsOptional,
   ValidateNested,
 } from 'class-validator';
-import { BaseQueryDto, PaginationDto } from 'src/common/dto/query.dto';
+import { BaseQueryDto } from 'src/common/dto/query.dto';
 import { SortDirection } from 'src/common/interfaces/query.interface';
 
 import { ApiPropertyOptional } from '@nestjs/swagger';

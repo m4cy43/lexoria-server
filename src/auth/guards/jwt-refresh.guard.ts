@@ -18,6 +18,8 @@ export class JwtRefreshGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const token = this.extractToken(request);
 
+    console.log(token);
+
     if (!token) {
       throw new UnauthorizedException('Token not found');
     }
@@ -36,8 +38,7 @@ export class JwtRefreshGuard implements CanActivate {
   }
 
   private extractToken(request: any): string | undefined {
-    const cookieToken =
-      request.cookies?.accessToken || request.cookies?.jwtToken;
+    const cookieToken = request.cookies?.refreshToken;
     if (cookieToken) {
       return cookieToken;
     }
