@@ -10,26 +10,25 @@ export class GlobalQueryPipe implements PipeTransform {
     }
 
     if (typeof value === 'string') {
-      const qsConfig = {
+      const qsConfig: qs.IParseOptions<qs.BooleanOptional> & {
+        decoder?: never | undefined;
+      } = {
         allowDots: true,
         comma: true,
         parseArrays: true,
         allowEmptyArrays: true,
       };
       value = qs.parse(value, qsConfig);
-      console.log(qs.stringify(value, qsConfig));
     }
 
-    const pagination = value?.pagination;
-    if (pagination) {
-      const page = Number(pagination.page ?? 1);
-      const limit = Number(pagination.limit ?? 10);
-      pagination.page = page;
-      pagination.limit = limit;
-      pagination.skip = (page - 1) * limit;
-    }
+    if (typeof value === null) {
+      const page = Number(value.page ?? 1);
+      const limit = Number(value.limit ?? 10);
 
-    console.log(value);
+      value.page = page;
+      value.limit = limit;
+      value.skip = (page - 1) * limit;
+    }
 
     return value;
   }

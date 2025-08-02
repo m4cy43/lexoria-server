@@ -19,15 +19,9 @@ export class PaginationDto {
   skip?: number = 0;
 }
 
-export class BaseQueryDto {
+export class BaseQueryDto extends PaginationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   search?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => PaginationDto)
-  pagination?: PaginationDto;
 }

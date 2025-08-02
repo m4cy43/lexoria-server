@@ -9,8 +9,7 @@ export function buildPaginatedResponse<T = any, S = any, F = any>(
   meta: QueryOptions<S, F>,
 ): PaginatedResponse<T, S, F> {
   const { items, total } = data;
-  const { pagination, filter, sort } = meta;
-  const { page, limit } = pagination;
+  const { page, limit, filter, sort } = meta;
 
   const totalPages = Math.ceil(total / limit);
   const hasNextPage = page < totalPages;

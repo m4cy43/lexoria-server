@@ -1,3 +1,5 @@
+import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
+
 import { Controller, Get, Param, Query } from '@nestjs/common';
 
 import { BookService } from './book.service';
@@ -9,7 +11,8 @@ export class BookController {
 
   @Get()
   async bookList(@Query() query: BookQueryDto) {
-    return { message: 'Not implemented yet!', query };
+    const list = await this.bookService.getList(query);
+    return buildPaginatedResponse(list, query);
   }
 
   @Get(':id')

@@ -12,27 +12,27 @@ import { SortDirection } from 'src/common/interfaces/query.interface';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class BookSort {
-  @ApiPropertyOptional({ example: 'asc' })
+  @ApiPropertyOptional({ example: 'ASC' })
   @IsEnum(SortDirection)
   @IsOptional()
   title?: SortDirection;
 
-  @ApiPropertyOptional({ example: 'asc' })
+  @ApiPropertyOptional({ example: 'DESC' })
   @IsEnum(SortDirection)
   @IsOptional()
   publishedDate?: SortDirection;
 
-  @ApiPropertyOptional({ example: 'asc' })
+  @ApiPropertyOptional({ example: 'ASC' })
   @IsEnum(SortDirection)
   @IsOptional()
   categories?: SortDirection;
 
-  @ApiPropertyOptional({ example: 'asc' })
+  @ApiPropertyOptional({ example: 'ASC' })
   @IsEnum(SortDirection)
   @IsOptional()
   authors?: SortDirection;
 
-  @ApiPropertyOptional({ example: 'asc' })
+  @ApiPropertyOptional({ example: 'ASC' })
   @IsEnum(SortDirection)
   @IsOptional()
   publishers?: SortDirection;
@@ -73,10 +73,4 @@ export class BookQueryDto extends BaseQueryDto {
   @ValidateNested()
   @Type(() => BookFilters)
   filter?: BookFilters;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => PaginationDto)
-  pagination?: PaginationDto;
 }

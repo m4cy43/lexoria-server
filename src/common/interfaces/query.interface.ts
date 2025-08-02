@@ -1,9 +1,3 @@
-export interface PaginationOptions {
-  page: number;
-  limit: number;
-  skip?: number;
-}
-
 export interface FilterOperator<T = any> {
   eq?: T;
   ne?: T;
@@ -17,20 +11,22 @@ export interface FilterOperator<T = any> {
 }
 
 export interface QueryOptions<S = any, F = any> {
-  pagination?: PaginationOptions;
+  page?: number;
+  limit?: number;
+  skip?: number;
   sort?: TSortOptions<S>;
   filter?: TFilterOptions<F>;
 }
 
-export type TSortOptions<T> = Partial<{
+export type TSortOptions<T = any> = Partial<{
   [K in keyof T]: SortDirection;
 }>;
 
-export type TFilterOptions<T> = Partial<{
+export type TFilterOptions<T = any> = Partial<{
   [K in keyof T]: T[K] | FilterOperator<T[K]> | (T[K] | FilterOperator<T[K]>)[];
 }>;
 
 export enum SortDirection {
-  ASC = 'asc',
-  DESC = 'desc',
+  ASC = 'ASC',
+  DESC = 'DESC',
 }
