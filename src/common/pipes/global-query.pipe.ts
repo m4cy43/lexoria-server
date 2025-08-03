@@ -9,6 +9,10 @@ export class GlobalQueryPipe implements PipeTransform {
       return value;
     }
 
+    if (!value) {
+      value = {};
+    }
+
     if (typeof value === 'string') {
       const qsConfig: qs.IParseOptions<qs.BooleanOptional> & {
         decoder?: never | undefined;
@@ -21,14 +25,13 @@ export class GlobalQueryPipe implements PipeTransform {
       value = qs.parse(value, qsConfig);
     }
 
-    if (typeof value === null) {
-      const page = Number(value.page ?? 1);
-      const limit = Number(value.limit ?? 10);
+    const page = Number(value.page ?? 1);
+    const limit = Number(value.limit ?? 10);
+    const skip = (page - 1) * limit;
 
-      value.page = page;
-      value.limit = limit;
-      value.skip = (page - 1) * limit;
-    }
+    value.page = page;
+    value.limit = limit;
+    value.skip = skip;
 
     return value;
   }
