@@ -62,7 +62,6 @@ export class AuthController {
         expiresIn: this.refreshExpiresIn,
       }),
     ]);
-    console.log({ accessToken, refreshToken });
     return { accessToken, refreshToken };
   }
 
