@@ -1,4 +1,6 @@
 import {
+  BeforeInsert,
+  BeforeUpdate,
   Column,
   Entity,
   JoinTable,
@@ -46,4 +48,19 @@ export class Book {
 
   @ManyToOne(() => Publisher, (publisher) => publisher.books, { cascade: true })
   publisher: Publisher;
+
+  @Column({
+    type: 'vector' as any,
+    length: 1536,
+    nullable: true,
+  })
+  embedding: number[] | null;
+
+  @BeforeUpdate()
+  @BeforeInsert()
+  stringifyVector() {
+    if (this.embedding && Array.isArray(this.embedding)) {
+      this.embedding = JSON.stringify(this.embedding) as any;
+    }
+  }
 }

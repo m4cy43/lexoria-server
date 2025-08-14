@@ -7,6 +7,7 @@ import { AuthorModule } from './author/author.module';
 import { BookModule } from './book/book.module';
 import { CategoryModule } from './category/category.module';
 import { ImportModule } from './import/import.module';
+import { OpenAiService } from './openai/openai.service';
 import { PostgresModule } from './postgres/postgres.module';
 import { PublisherModule } from './publisher/publisher.module';
 import { UserModule } from './user/user.module';
@@ -27,6 +28,6 @@ import { UserModule } from './user/user.module';
     ImportModule,
   ],
   controllers: [],
-  providers: [],
+  providers: [OpenAiService],
 })
 export class AppModule {}

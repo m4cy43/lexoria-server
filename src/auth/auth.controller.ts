@@ -69,8 +69,9 @@ export class AuthController {
     return {
       httpOnly: true,
       maxAge: ms(expiresIn),
-      sameSite: 'lax',
-      secure: this.isProd,
+      sameSite: 'none',
+      // secure: this.isProd,
+      secure: true,
     };
   }
 

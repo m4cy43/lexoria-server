@@ -27,6 +27,11 @@ export class SearchQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  searchType?: string;
 }
 
 export class BaseQueryDto extends IntersectionType(
