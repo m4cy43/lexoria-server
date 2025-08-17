@@ -3,7 +3,10 @@ import {
   ArrayMaxSize,
   IsArray,
   IsEnum,
+  IsNumber,
   IsOptional,
+  Max,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { BaseQueryDto } from 'src/common/dto/query.dto';
@@ -73,4 +76,11 @@ export class BookQueryDto extends BaseQueryDto {
   @ValidateNested()
   @Type(() => BookFilters)
   filter?: BookFilters;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  similarityThreshold?: number;
 }

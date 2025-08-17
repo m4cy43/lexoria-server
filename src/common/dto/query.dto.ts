@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
 
 import { IntersectionType } from '@nestjs/mapped-types';
 import { ApiPropertyOptional } from '@nestjs/swagger';

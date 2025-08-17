@@ -16,13 +16,21 @@ export class BookService {
     private readonly openAiService: OpenAiService,
   ) {}
 
-  async createBook(data: Partial<Book>): Promise<Book> {
-    const book = this.bookRepository.create(data);
+  prepareVectorString(book: Partial<Book>): string {
+    return `${book.title} ${book.description || ''}`.trim();
+  }
 
-    const text = `${book.title} ${book.description || ''}`.trim();
+  async attachEmbedding(book: Partial<Book>): Promise<void> {
+    const text = this.prepareVectorString(book);
     if (text) {
       book.embedding = await this.openAiService.generateEmbedding(text);
     }
+  }
+
+  async createBook(data: Partial<Book>): Promise<Book> {
+    const book = this.bookRepository.create(data);
+
+    await this.attachEmbedding(book);
 
     return this.bookRepository.save(book);
   }
@@ -32,13 +40,45 @@ export class BookService {
       where: { id },
     });
 
-    const text = `${book.title} ${book.description || ''}`.trim();
-    if (text) {
-      book.embedding = await this.openAiService.generateEmbedding(text);
+    await this.attachEmbedding(book);
+    if (book.embedding) {
       await this.bookRepository.save(book);
     }
 
     return book;
+  }
+
+  async updateAllMissingEmbeddings(batchSize = 100): Promise<string> {
+    const books = await this.bookRepository.find({
+      where: { embedding: null },
+    });
+    let counter = 0;
+
+    for (let i = 0; i < books.length; i += batchSize) {
+      const batch = books.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map(async (book) => {
+          const text = this.prepareVectorString(book);
+          if (!text) return;
+
+          try {
+            book.embedding = await this.openAiService.generateEmbedding(text);
+          } catch (e) {
+            console.error(
+              `❌ Failed embedding for book ${book.id}:`,
+              e.message,
+            );
+            return;
+          }
+        }),
+      );
+
+      await this.bookRepository.save(batch.filter((b) => b.embedding));
+      counter += batch.filter((b) => b.embedding).length;
+    }
+
+    return `✅ Updated embeddings: ${counter}`;
   }
 
   async getById(id: string): Promise<Book> {
@@ -56,6 +96,19 @@ export class BookService {
   async searchByText(queryDto: BookQueryDto): Promise<ItemsWithTotal<Book>> {
     const qb = this.buildBaseQuery(queryDto);
 
+    qb.select([
+      'book.id',
+      'book.title',
+      'book.publishedDate',
+      'book.imageUrl',
+      'author.id',
+      'author.name',
+      'category.id',
+      'category.name',
+      'publisher.id',
+      'publisher.name',
+    ]);
+
     if (queryDto.search) {
       qb.andWhere(
         '(book.title ILIKE :search OR book.description ILIKE :search OR author.name ILIKE :search)',
@@ -70,62 +123,142 @@ export class BookService {
     embedding: number[],
     queryDto: BookQueryDto,
   ): Promise<ItemsWithTotal<Book>> {
-    const whereClauses: string[] = [];
-    const params: any[] = [];
+    const embeddingVector = Array.isArray(embedding)
+      ? `[${embedding.join(',')}]`
+      : embedding;
+
+    const filterConditions: string[] = [];
+    const filterParams: any[] = [];
+    let paramIndex = 0;
 
     if (queryDto.filter?.categories?.length) {
-      whereClauses.push(`c.id = ANY($${params.length + 1})`);
-      params.push(queryDto.filter.categories);
-    }
-    if (queryDto.filter?.authors?.length) {
-      whereClauses.push(`a.id = ANY($${params.length + 1})`);
-      params.push(queryDto.filter.authors);
-    }
-    if (queryDto.filter?.publishers?.length) {
-      whereClauses.push(`p.id = ANY($${params.length + 1})`);
-      params.push(queryDto.filter.publishers);
+      filterConditions.push(`EXISTS (
+      SELECT 1 FROM book_categories bc 
+      WHERE bc.book = b.id AND bc.category = ANY($${++paramIndex})
+    )`);
+      filterParams.push(queryDto.filter.categories);
     }
 
-    const filterSql = whereClauses.length
-      ? `WHERE ${whereClauses.join(' AND ')}`
-      : '';
+    if (queryDto.filter?.authors?.length) {
+      filterConditions.push(`EXISTS (
+      SELECT 1 FROM book_authors ba 
+      WHERE ba.book = b.id AND ba.author = ANY($${++paramIndex})
+    )`);
+      filterParams.push(queryDto.filter.authors);
+    }
+
+    if (queryDto.filter?.publishers?.length) {
+      filterConditions.push(`b."publisherId" = ANY($${++paramIndex})`);
+      filterParams.push(queryDto.filter.publishers);
+    }
+
+    if (queryDto.filter?.publishedDateRange?.length === 2) {
+      filterConditions.push(
+        `b."publishedDate" BETWEEN $${++paramIndex} AND $${++paramIndex}`,
+      );
+      filterParams.push(
+        queryDto.filter.publishedDateRange[0],
+        queryDto.filter.publishedDateRange[1],
+      );
+    }
+
+    if (
+      queryDto.similarityThreshold !== undefined &&
+      queryDto.similarityThreshold !== null
+    ) {
+      filterConditions.push(
+        `(1 - (b.embedding <=> $0::vector)) >= $${++paramIndex}`,
+      );
+      filterParams.push(queryDto.similarityThreshold);
+    }
+
+    const whereClause =
+      filterConditions.length > 0
+        ? `WHERE ${filterConditions.join(' AND ')}`
+        : '';
+
+    // Main query parameters: embedding first, then filters, then pagination
+    const mainQueryParams = [
+      embeddingVector,
+      ...filterParams,
+      queryDto.limit,
+      queryDto.skip,
+    ];
+
+    // Shift all parameters by 1 because embedding is $1, so filters start from $2
+    const adjustedWhereClause = whereClause.replace(
+      /\$(\d+)/g,
+      (match, num) => {
+        return `$${parseInt(num) + 1}`;
+      },
+    );
 
     const sql = `
-    SELECT b.*
-    FROM books b
-    LEFT JOIN book_authors ba ON ba.book = b.id
+    WITH filtered_books AS (
+      SELECT 
+        b.id, 
+        b.title, 
+        b."publishedDate", 
+        b."imageUrl", 
+        b."publisherId", 
+        b.embedding,
+        (1 - (b.embedding <=> $1::vector)) AS "similarityScore",
+        (b.embedding <-> $1::vector) AS distance
+      FROM books b
+      ${adjustedWhereClause}
+      ORDER BY b.embedding <-> $1::vector
+      LIMIT $${filterParams.length + 2} OFFSET $${filterParams.length + 3}
+    )
+    SELECT 
+      fb.id,
+      fb.title,
+      fb."publishedDate",
+      fb."imageUrl",
+      fb."similarityScore",
+      fb.distance,
+      COALESCE(
+        JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
+        FILTER (WHERE a.id IS NOT NULL), '[]'
+      ) AS authors,
+      COALESCE(
+        JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
+        FILTER (WHERE c.id IS NOT NULL), '[]'
+      ) AS categories,
+      jsonb_build_object('id', p.id, 'name', p.name) AS publisher
+    FROM filtered_books fb
+    LEFT JOIN book_authors ba ON ba.book = fb.id
     LEFT JOIN authors a ON a.id = ba.author
-    LEFT JOIN book_categories bc ON bc.book = b.id
+    LEFT JOIN book_categories bc ON bc.book = fb.id
     LEFT JOIN categories c ON c.id = bc.category
-    LEFT JOIN publishers p ON p.id = b."publisherId"
-    ${filterSql}
-    ORDER BY b.embedding <-> $${params.length + 1}
-    LIMIT $${params.length + 2} OFFSET $${params.length + 3}
+    LEFT JOIN publishers p ON p.id = fb."publisherId"
+    GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."similarityScore", fb.distance, fb.embedding, p.id, p.name
+    ORDER BY fb.embedding <-> $1::vector
   `;
 
-    let embeddingVector = embedding;
-    if (embedding && Array.isArray(embedding)) {
-      embeddingVector = JSON.stringify(embedding) as any;
+    const books = await this.dataSource.query(sql, mainQueryParams);
+
+    let countSql: string;
+    let countParams: any[];
+
+    if (
+      queryDto.similarityThreshold !== undefined &&
+      queryDto.similarityThreshold !== null
+    ) {
+      countSql = `
+      SELECT COUNT(DISTINCT b.id) AS total
+      FROM books b
+      ${adjustedWhereClause}
+    `;
+      countParams = [embeddingVector, ...filterParams];
+    } else {
+      countSql = `
+      SELECT COUNT(DISTINCT b.id) AS total
+      FROM books b
+      ${whereClause}
+    `;
+      countParams = filterParams;
     }
-
-    params.push(embeddingVector, queryDto.limit, queryDto.skip);
-
-    const books = await this.dataSource.query(sql, params);
-
-    const countSql = `
-    SELECT COUNT(DISTINCT b.id) AS total
-    FROM books b
-    LEFT JOIN book_authors ba ON ba.book = b.id
-    LEFT JOIN authors a ON a.id = ba.author
-    LEFT JOIN book_categories bc ON bc.book = b.id
-    LEFT JOIN categories c ON c.id = bc.category
-    LEFT JOIN publishers p ON p.id = b."publisherId"
-    ${filterSql}
-  `;
-    const totalRes = await this.dataSource.query(
-      countSql,
-      params.slice(0, params.length - 3),
-    );
+    const totalRes = await this.dataSource.query(countSql, countParams);
     const total = Number(totalRes[0]?.total || 0);
 
     return { items: books, total };

@@ -1,3 +1,4 @@
+import e from 'express';
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
 import { OpenAiService } from 'src/openai/openai.service';
@@ -26,7 +27,9 @@ export class BookController {
   async bookList(@Query() query: BookQueryDto) {
     let list: ItemsWithTotal<Book>;
     const { searchType, search } = query;
-    if (searchType === 'vector') {
+    if (!query.search) {
+      list = await this.bookService.searchByText(query);
+    } else if (searchType === 'vector') {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByVector(embedding, query);
     } else {
@@ -41,6 +44,12 @@ export class BookController {
   @Get(':id')
   async bookDetails(@Param('id') id: string) {
     return await this.bookService.getById(id);
+  }
+
+  @Post('update-missing-embedding/all')
+  async updateAllMissingEmbeddings() {
+    const message = await this.bookService.updateAllMissingEmbeddings();
+    return { message };
   }
 
   @Post('update-missing-embedding/:id')

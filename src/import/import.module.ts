@@ -1,3 +1,5 @@
+import { OpenAiService } from 'src/openai/openai.service';
+
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -9,6 +11,6 @@ import { ImportService } from './import.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Book, Author, Publisher, Category])],
-  providers: [ImportService],
+  providers: [ImportService, OpenAiService],
 })
 export class ImportModule {}

@@ -1,6 +1,7 @@
 import * as csv from 'csv-parser';
 import * as fs from 'fs';
 import * as path from 'path';
+import { OpenAiService } from 'src/openai/openai.service';
 import { Repository } from 'typeorm';
 
 import { Injectable } from '@nestjs/common';
@@ -18,6 +19,7 @@ export class ImportService {
     @InjectRepository(Author) private authorRepo: Repository<Author>,
     @InjectRepository(Category) private categoryRepo: Repository<Category>,
     @InjectRepository(Publisher) private publisherRepo: Repository<Publisher>,
+    private readonly openAiService: OpenAiService,
   ) {}
 
   async runImport() {
@@ -76,6 +78,12 @@ export class ImportService {
         }
       }
 
+      let embedding = null;
+      const vectorString = `${title} ${description || ''}`.trim();
+      if (vectorString) {
+        embedding = await this.openAiService.generateEmbedding(vectorString);
+      }
+
       const book = this.bookRepo.create({
         title,
         description,
@@ -84,6 +92,7 @@ export class ImportService {
         publisher: publisherEntity || null,
         authors: authorEntities,
         categories: categoryEntities,
+        embedding,
       });
 
       await this.bookRepo.save(book);

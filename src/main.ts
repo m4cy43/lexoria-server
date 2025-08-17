@@ -15,7 +15,7 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
-    'https://838b71fcc394.ngrok-free.app',
+    'https://2e6773ce0cd1.ngrok-free.app',
   ];
 
   app.enableCors({

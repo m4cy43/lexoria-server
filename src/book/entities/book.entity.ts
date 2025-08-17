@@ -53,6 +53,7 @@ export class Book {
     type: 'vector' as any,
     length: 1536,
     nullable: true,
+    select: false,
   })
   embedding: number[] | null;
 
