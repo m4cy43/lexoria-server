@@ -127,39 +127,43 @@ export class BookService {
       ? `[${embedding.join(',')}]`
       : embedding;
 
+    const params: any[] = [embeddingVector];
     const filterConditions: string[] = [];
-    const filterParams: any[] = [];
-    let paramIndex = 0;
+    let nextParamIndex = 2;
 
     if (queryDto.filter?.categories?.length) {
       filterConditions.push(`EXISTS (
       SELECT 1 FROM book_categories bc 
-      WHERE bc.book = b.id AND bc.category = ANY($${++paramIndex})
+      WHERE bc.book = b.id AND bc.category = ANY($${nextParamIndex})
     )`);
-      filterParams.push(queryDto.filter.categories);
+      params.push(queryDto.filter.categories);
+      nextParamIndex++;
     }
 
     if (queryDto.filter?.authors?.length) {
       filterConditions.push(`EXISTS (
       SELECT 1 FROM book_authors ba 
-      WHERE ba.book = b.id AND ba.author = ANY($${++paramIndex})
+      WHERE ba.book = b.id AND ba.author = ANY($${nextParamIndex})
     )`);
-      filterParams.push(queryDto.filter.authors);
+      params.push(queryDto.filter.authors);
+      nextParamIndex++;
     }
 
     if (queryDto.filter?.publishers?.length) {
-      filterConditions.push(`b."publisherId" = ANY($${++paramIndex})`);
-      filterParams.push(queryDto.filter.publishers);
+      filterConditions.push(`b."publisherId" = ANY($${nextParamIndex})`);
+      params.push(queryDto.filter.publishers);
+      nextParamIndex++;
     }
 
     if (queryDto.filter?.publishedDateRange?.length === 2) {
       filterConditions.push(
-        `b."publishedDate" BETWEEN $${++paramIndex} AND $${++paramIndex}`,
+        `b."publishedDate" BETWEEN $${nextParamIndex} AND $${nextParamIndex + 1}`,
       );
-      filterParams.push(
+      params.push(
         queryDto.filter.publishedDateRange[0],
         queryDto.filter.publishedDateRange[1],
       );
+      nextParamIndex += 2;
     }
 
     if (
@@ -167,31 +171,20 @@ export class BookService {
       queryDto.similarityThreshold !== null
     ) {
       filterConditions.push(
-        `(1 - (b.embedding <=> $0::vector)) >= $${++paramIndex}`,
+        `(1 - (b.embedding <=> $1::vector)) >= $${nextParamIndex}`,
       );
-      filterParams.push(queryDto.similarityThreshold);
+      params.push(queryDto.similarityThreshold);
+      nextParamIndex++;
     }
+
+    const limitParamIndex = nextParamIndex;
+    const offsetParamIndex = nextParamIndex + 1;
+    params.push(queryDto.limit, queryDto.skip);
 
     const whereClause =
       filterConditions.length > 0
         ? `WHERE ${filterConditions.join(' AND ')}`
         : '';
-
-    // Main query parameters: embedding first, then filters, then pagination
-    const mainQueryParams = [
-      embeddingVector,
-      ...filterParams,
-      queryDto.limit,
-      queryDto.skip,
-    ];
-
-    // Shift all parameters by 1 because embedding is $1, so filters start from $2
-    const adjustedWhereClause = whereClause.replace(
-      /\$(\d+)/g,
-      (match, num) => {
-        return `$${parseInt(num) + 1}`;
-      },
-    );
 
     const sql = `
     WITH filtered_books AS (
@@ -205,9 +198,9 @@ export class BookService {
         (1 - (b.embedding <=> $1::vector)) AS "similarityScore",
         (b.embedding <-> $1::vector) AS distance
       FROM books b
-      ${adjustedWhereClause}
+      ${whereClause}
       ORDER BY b.embedding <-> $1::vector
-      LIMIT $${filterParams.length + 2} OFFSET $${filterParams.length + 3}
+      LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     )
     SELECT 
       fb.id,
@@ -235,29 +228,18 @@ export class BookService {
     ORDER BY fb.embedding <-> $1::vector
   `;
 
-    const books = await this.dataSource.query(sql, mainQueryParams);
+    const books = await this.dataSource.query(sql, params);
 
-    let countSql: string;
-    let countParams: any[];
+    // For count query exclude pagination - remove limit and offset
+    const countParams = queryDto.similarityThreshold
+      ? params.slice(0, -2)
+      : params.slice(1, -2);
+    const countSql = `
+    SELECT COUNT(DISTINCT b.id) AS total
+    FROM books b
+    ${whereClause}
+  `;
 
-    if (
-      queryDto.similarityThreshold !== undefined &&
-      queryDto.similarityThreshold !== null
-    ) {
-      countSql = `
-      SELECT COUNT(DISTINCT b.id) AS total
-      FROM books b
-      ${adjustedWhereClause}
-    `;
-      countParams = [embeddingVector, ...filterParams];
-    } else {
-      countSql = `
-      SELECT COUNT(DISTINCT b.id) AS total
-      FROM books b
-      ${whereClause}
-    `;
-      countParams = filterParams;
-    }
     const totalRes = await this.dataSource.query(countSql, countParams);
     const total = Number(totalRes[0]?.total || 0);
 
