@@ -32,6 +32,11 @@ export class BookController {
     } else if (searchType === 'vector') {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByVector(embedding, query);
+    } else if (searchType === 'fuzzy') {
+      list = await this.bookService.searchByFuzzy(search, query);
+    } else if (searchType === 'hybrid') {
+      const embedding = await this.openAiService.generateEmbedding(search);
+      list = await this.bookService.searchByHybrid(embedding, search, query);
     } else {
       list = await this.bookService.searchByText(query);
     }
