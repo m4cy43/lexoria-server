@@ -25,14 +25,27 @@ export class BookService {
     return `${book.title} ${book.description || ''}`.trim();
   }
 
-  chunkText(text: string, chunkSize = 1000, overlap = 100): string[] {
+  chunkText(
+    text: string,
+    chunkSize = 1024,
+    overlap = 128,
+    threshold = chunkSize / 2,
+  ): string[] {
     const chunks: string[] = [];
     let start = 0;
 
     while (start < text.length) {
-      const end = Math.min(start + chunkSize, text.length);
-      const chunk = text.slice(start, end);
-      chunks.push(chunk.trim());
+      let end = Math.min(start + chunkSize, text.length);
+
+      if (text.length - end < threshold && end !== text.length) {
+        end = text.length;
+      }
+
+      const chunk = text.slice(start, end).trim();
+      chunks.push(chunk);
+
+      if (end === text.length) break;
+
       start += chunkSize - overlap;
     }
 
@@ -43,7 +56,7 @@ export class BookService {
     const text = this.prepareVectorString(book);
     if (!text) return;
 
-    const chunks = this.chunkText(text, 1000, 100);
+    const chunks = this.chunkText(text, 1024, 128);
     if (chunks.length === 0) return;
 
     const embeddings = await this.generateEmbeddingsBatch(chunks, 10);
@@ -116,7 +129,7 @@ export class BookService {
         const text = this.prepareVectorString(book);
         if (!text) continue;
 
-        const chunks = this.chunkText(text, 1000, 100);
+        const chunks = this.chunkText(text, 1024, 128);
         if (chunks.length > 0) {
           batchData.push({ book, chunks });
         }
@@ -168,13 +181,12 @@ export class BookService {
     bookBatchSize = 100,
     chunkBatchSize = 100,
     embeddingConcurrency = 10,
-    maxBooks: number = 3000,
+    maxBooks = 700,
   ): Promise<string> {
     console.log('🔍 Finding books without embeddings...');
 
-    const booksWithoutChunks: Book[] = [];
+    let processedBooks = 0;
     let offset = 0;
-    const queryBatchSize = 1000;
 
     while (true) {
       const books = await this.bookRepository
@@ -182,37 +194,29 @@ export class BookService {
         .leftJoin('book.chunks', 'chunk')
         .where('chunk.id IS NULL')
         .skip(offset)
-        .take(queryBatchSize)
+        .take(bookBatchSize)
         .getMany();
 
       if (books.length === 0) break;
 
-      booksWithoutChunks.push(...books);
-      offset += queryBatchSize;
-
-      if (maxBooks && booksWithoutChunks.length >= maxBooks) {
-        booksWithoutChunks.splice(maxBooks);
-        break;
+      if (maxBooks && processedBooks + books.length > maxBooks) {
+        books.splice(maxBooks - processedBooks);
       }
 
-      console.log(
-        `📊 Found ${booksWithoutChunks.length} books without embeddings so far...`,
+      console.log(`📈 Processing ${books.length} books from DB...`);
+      await this.createChunksEmbeddingsForBooks(
+        books,
+        chunkBatchSize,
+        embeddingConcurrency,
       );
+
+      processedBooks += books.length;
+      offset += bookBatchSize;
+
+      if (maxBooks && processedBooks >= maxBooks) break;
     }
 
-    if (booksWithoutChunks.length === 0) {
-      return '✅ All books already have embeddings!';
-    }
-
-    console.log(`📈 Total books to process: ${booksWithoutChunks.length}`);
-
-    await this.createChunksEmbeddingsForBooks(
-      booksWithoutChunks,
-      chunkBatchSize,
-      embeddingConcurrency,
-    );
-
-    return `✅ Updated embeddings for ${booksWithoutChunks.length} books`;
+    return `✅ Updated embeddings for ${processedBooks} books`;
   }
 
   async updateEmbeddingsForBooks(
@@ -265,7 +269,11 @@ export class BookService {
   async getById(id: string): Promise<Book> {
     const book = await this.bookRepository.findOne({
       where: { id },
-      relations: { authors: true, categories: true, publisher: true },
+      relations: {
+        authors: true,
+        categories: true,
+        publisher: true,
+      },
     });
     if (!book) {
       throw new NotFoundException(`Book with ID ${id} have not found`);
@@ -348,8 +356,8 @@ export class BookService {
     ]);
 
     if (queryDto.search) {
-      qb.andWhere(
-        '(book.title ILIKE :search OR book.description ILIKE :search OR author.name ILIKE :search)',
+      qb.leftJoin('book.chunks', 'chunk').andWhere(
+        '(book.title ILIKE :search OR book.description ILIKE :search OR author.name ILIKE :search OR chunk.content ILIKE :search)',
         { search: `%${queryDto.search}%` },
       );
     }
@@ -423,9 +431,12 @@ export class BookService {
       queryDto.similarityThreshold !== undefined &&
       queryDto.similarityThreshold !== null
     ) {
-      filterConditions.push(
-        `(1 - (b.embedding <=> $1::vector)) >= $${nextParamIndex}`,
-      );
+      filterConditions.push(`
+        EXISTS (
+          SELECT 1 FROM book_chunks bc 
+          WHERE bc."bookId" = b.id 
+          AND (1 - (bc.embedding <=> $1::vector)) >= $${nextParamIndex}
+        )`);
       allParams.push(queryDto.similarityThreshold);
     }
 
@@ -439,19 +450,29 @@ export class BookService {
         : '';
 
     const sql = `
-      WITH filtered_books AS (
+      WITH ranked_chunks AS (
+        SELECT 
+          bc."bookId",
+          bc.embedding,
+          (1 - (bc.embedding <=> $1::vector)) AS "similarityScore",
+          (bc.embedding <-> $1::vector) AS distance,
+          ROW_NUMBER() OVER (PARTITION BY bc."bookId" ORDER BY bc.embedding <-> $1::vector) as rn
+        FROM book_chunks bc
+        WHERE bc.embedding IS NOT NULL
+      ),
+      filtered_books AS (
         SELECT 
           b.id, 
           b.title, 
           b."publishedDate", 
           b."imageUrl", 
           b."publisherId", 
-          b.embedding,
-          (1 - (b.embedding <=> $1::vector)) AS "similarityScore",
-          (b.embedding <-> $1::vector) AS distance
+          rc."similarityScore",
+          rc.distance
         FROM books b
+        INNER JOIN ranked_chunks rc ON rc."bookId" = b.id AND rc.rn = 1
         ${whereClause}
-        ORDER BY b.embedding <-> $1::vector
+        ORDER BY rc.distance
         LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       )
       SELECT 
@@ -473,22 +494,50 @@ export class BookService {
       FROM filtered_books fb
       LEFT JOIN book_authors ba ON ba.book = fb.id
       LEFT JOIN authors a ON a.id = ba.author
-      LEFT JOIN book_categories bc ON bc.book = fb.id
-      LEFT JOIN categories c ON c.id = bc.category
+      LEFT JOIN book_categories bcat ON bcat.book = fb.id
+      LEFT JOIN categories c ON c.id = bcat.category
       LEFT JOIN publishers p ON p.id = fb."publisherId"
-      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."similarityScore", fb.distance, fb.embedding, p.id, p.name
-      ORDER BY fb.embedding <-> $1::vector
+      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."similarityScore", fb.distance, p.id, p.name, p.id, p.name
+      ORDER BY fb.distance
     `;
 
     const books = await this.dataSource.query(sql, allParams);
 
+    const countFilterConditions = [...filterConditions];
+    if (
+      queryDto.similarityThreshold !== undefined &&
+      queryDto.similarityThreshold !== null
+    ) {
+      countFilterConditions.pop();
+      countFilterConditions.push(`
+        EXISTS (
+          SELECT 1 FROM book_chunks bc 
+          WHERE bc."bookId" = b.id 
+          AND bc.embedding IS NOT NULL
+          AND (1 - (bc.embedding <=> $1::vector)) >= $${nextParamIndex}
+        )`);
+    } else {
+      countFilterConditions.push(`
+        EXISTS (
+          SELECT 1 FROM book_chunks bc 
+          WHERE bc."bookId" = b.id 
+          AND bc.embedding IS NOT NULL
+        )`);
+    }
+
+    const countWhereClause =
+      countFilterConditions.length > 0
+        ? `WHERE ${countFilterConditions.join(' AND ')}`
+        : '';
+
     const countParams = queryDto.similarityThreshold
       ? allParams.slice(0, -2)
       : allParams.slice(1, -2);
+
     const countSql = `
       SELECT COUNT(DISTINCT b.id) AS total
       FROM books b
-      ${whereClause}
+      ${countWhereClause}
     `;
 
     const totalRes = await this.dataSource.query(countSql, countParams);
@@ -508,7 +557,8 @@ export class BookService {
 
     const allParams = [query, ...params];
 
-    const fuzzyCondition = `(b.title % $1 OR EXISTS (
+    const fuzzyCondition = `
+      (b.title % $1 OR b.description % $1 OR EXISTS (
       SELECT 1 FROM book_authors ba 
       JOIN authors a ON a.id = ba.author 
       WHERE ba.book = b.id AND a.name % $1
@@ -516,6 +566,9 @@ export class BookService {
       SELECT 1 FROM book_categories bc 
       JOIN categories c ON c.id = bc.category 
       WHERE bc.book = b.id AND c.name % $1
+    ) OR EXISTS (
+      SELECT 1 FROM book_chunks bc 
+      WHERE bc."bookId" = b.id AND bc.content % $1
     ))`;
 
     let currentNextParamIndex = nextParamIndex;
@@ -523,8 +576,10 @@ export class BookService {
       queryDto.fuzzyThreshold !== undefined &&
       queryDto.fuzzyThreshold !== null
     ) {
-      filterConditions.push(`GREATEST(
+      filterConditions.push(`
+        GREATEST(
         similarity(b.title, $1),
+        COALESCE(similarity(b.description, $1), 0),
         COALESCE((
           SELECT MAX(similarity(a.name, $1))
           FROM book_authors ba
@@ -536,6 +591,11 @@ export class BookService {
           FROM book_categories bc
           JOIN categories c ON c.id = bc.category
           WHERE bc.book = b.id
+        ), 0),
+        COALESCE((
+          SELECT MAX(similarity(bc.content, $1))
+          FROM book_chunks bc
+          WHERE bc."bookId" = b.id
         ), 0)
       ) >= $${currentNextParamIndex}`);
       allParams.push(queryDto.fuzzyThreshold);
@@ -561,6 +621,7 @@ export class BookService {
           b."publisherId",
           GREATEST(
             similarity(b.title, $1),
+            COALESCE(similarity(b.description, $1), 0),
             COALESCE((
               SELECT MAX(similarity(a.name, $1))
               FROM book_authors ba
@@ -572,6 +633,11 @@ export class BookService {
               FROM book_categories bc
               JOIN categories c ON c.id = bc.category
               WHERE bc.book = b.id
+            ), 0),
+            COALESCE((
+              SELECT MAX(similarity(bc.content, $1))
+              FROM book_chunks bc
+              WHERE bc."bookId" = b.id
             ), 0)
           ) AS "fuzzyScore"
         FROM books b
@@ -602,8 +668,8 @@ export class BookService {
       FROM filtered_books fb
       LEFT JOIN book_authors ba ON ba.book = fb.id
       LEFT JOIN authors a ON a.id = ba.author
-      LEFT JOIN book_categories bc ON bc.book = fb.id
-      LEFT JOIN categories c ON c.id = bc.category
+      LEFT JOIN book_categories bcat ON bcat.book = fb.id
+      LEFT JOIN categories c ON c.id = bcat.category
       LEFT JOIN publishers p ON p.id = fb."publisherId"
       GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."fuzzyScore", p.id, p.name
       ORDER BY fb."fuzzyScore" DESC
@@ -639,7 +705,8 @@ export class BookService {
 
     const allParams = [embeddingVector, query, ...params];
 
-    const fuzzyCondition = `(b.title % $2 OR EXISTS (
+    const fuzzyCondition = `
+      (b.title % $2 OR b.description % $2 OR EXISTS (
       SELECT 1 FROM book_authors ba 
       JOIN authors a ON a.id = ba.author 
       WHERE ba.book = b.id AND a.name % $2
@@ -647,6 +714,9 @@ export class BookService {
       SELECT 1 FROM book_categories bc 
       JOIN categories c ON c.id = bc.category 
       WHERE bc.book = b.id AND c.name % $2
+    ) OR EXISTS (
+      SELECT 1 FROM book_chunks bc 
+      WHERE bc."bookId" = b.id AND bc.content % $2
     ))`;
 
     let currentNextParamIndex = nextParamIndex;
@@ -654,9 +724,13 @@ export class BookService {
       queryDto.similarityThreshold !== undefined &&
       queryDto.similarityThreshold !== null
     ) {
-      filterConditions.push(
-        `(1 - (b.embedding <=> $1::vector)) >= $${currentNextParamIndex}`,
-      );
+      filterConditions.push(`
+        EXISTS (
+        SELECT 1 FROM book_chunks bc 
+        WHERE bc."bookId" = b.id 
+        AND bc.embedding IS NOT NULL
+        AND (1 - (bc.embedding <=> $1::vector)) >= $${currentNextParamIndex}
+      )`);
       allParams.push(queryDto.similarityThreshold);
       currentNextParamIndex++;
     }
@@ -665,8 +739,10 @@ export class BookService {
       queryDto.fuzzyThreshold !== undefined &&
       queryDto.fuzzyThreshold !== null
     ) {
-      filterConditions.push(`GREATEST(
+      filterConditions.push(`
+        GREATEST(
         similarity(b.title, $2),
+        COALESCE(similarity(b.description, $2), 0),
         COALESCE((
           SELECT MAX(similarity(a.name, $2))
           FROM book_authors ba
@@ -678,11 +754,22 @@ export class BookService {
           FROM book_categories bc
           JOIN categories c ON c.id = bc.category
           WHERE bc.book = b.id
+        ), 0),
+        COALESCE((
+          SELECT MAX(similarity(bc.content, $2))
+          FROM book_chunks bc
+          WHERE bc."bookId" = b.id
         ), 0)
       ) >= $${currentNextParamIndex}`);
       allParams.push(queryDto.fuzzyThreshold);
       currentNextParamIndex++;
     }
+
+    filterConditions.push(`
+        EXISTS (
+        SELECT 1 FROM book_chunks bc 
+        WHERE bc."bookId" = b.id AND bc.embedding IS NOT NULL
+      )`);
 
     const whereClause =
       filterConditions.length > 0
@@ -694,17 +781,28 @@ export class BookService {
     allParams.push(queryDto.limit, queryDto.skip);
 
     const sql = `
-      WITH scored_books AS (
+      WITH ranked_chunks AS (
+        SELECT 
+          bc."bookId",
+          bc.embedding,
+          (1 - (bc.embedding <=> $1::vector)) AS "similarityScore",
+          (bc.embedding <-> $1::vector) AS distance,
+          ROW_NUMBER() OVER (PARTITION BY bc."bookId" ORDER BY bc.embedding <-> $1::vector) as rn
+        FROM book_chunks bc
+        WHERE bc.embedding IS NOT NULL
+      ),
+      scored_books AS (
         SELECT 
           b.id, 
           b.title, 
           b."publishedDate", 
           b."imageUrl", 
           b."publisherId",
-          (1 - (b.embedding <=> $1::vector)) AS "similarityScore",
-          (b.embedding <-> $1::vector) AS distance,
+          rc."similarityScore",
+          rc.distance,
           GREATEST(
             similarity(b.title, $2),
+            COALESCE(similarity(b.description, $2), 0),
             COALESCE((
               SELECT MAX(similarity(a.name, $2))
               FROM book_authors ba
@@ -716,9 +814,15 @@ export class BookService {
               FROM book_categories bc
               JOIN categories c ON c.id = bc.category
               WHERE bc.book = b.id
+            ), 0),
+            COALESCE((
+              SELECT MAX(similarity(chk.content, $2))
+              FROM book_chunks chk
+              WHERE chk."bookId" = b.id
             ), 0)
           ) AS "fuzzyScore"
         FROM books b
+        INNER JOIN ranked_chunks rc ON rc."bookId" = b.id AND rc.rn = 1
         ${whereClause}
       ),
       filtered_books AS (
@@ -750,8 +854,8 @@ export class BookService {
       FROM filtered_books fb
       LEFT JOIN book_authors ba ON ba.book = fb.id
       LEFT JOIN authors a ON a.id = ba.author
-      LEFT JOIN book_categories bc ON bc.book = fb.id
-      LEFT JOIN categories c ON c.id = bc.category
+      LEFT JOIN book_categories bcat ON bcat.book = fb.id
+      LEFT JOIN categories c ON c.id = bcat.category
       LEFT JOIN publishers p ON p.id = fb."publisherId"
       GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", 
               fb."similarityScore", fb.distance, fb."fuzzyScore", fb."hybridScore", 
@@ -782,7 +886,8 @@ export class BookService {
     countParams.push(...countFilterParams);
     countParamIndex += countFilterParams.length;
 
-    const countFuzzyCondition = `(b.title % $1 OR EXISTS (
+    const countFuzzyCondition = `
+      (b.title % $1 OR b.description % $1 OR EXISTS (
       SELECT 1 FROM book_authors ba 
       JOIN authors a ON a.id = ba.author 
       WHERE ba.book = b.id AND a.name % $1
@@ -790,22 +895,37 @@ export class BookService {
       SELECT 1 FROM book_categories bc 
       JOIN categories c ON c.id = bc.category 
       WHERE bc.book = b.id AND c.name % $1
+    ) OR EXISTS (
+      SELECT 1 FROM book_chunks bc 
+      WHERE bc."bookId" = b.id AND bc.content % $1
     ))`;
 
     if (needsEmbedding) {
-      countFilterConditions.push(
-        `(1 - (b.embedding <=> $${embeddingParamIndex}::vector)) >= $${countParamIndex + 1}`,
-      );
+      countFilterConditions.push(`
+        EXISTS (
+        SELECT 1 FROM book_chunks bc 
+        WHERE bc."bookId" = b.id 
+        AND bc.embedding IS NOT NULL
+        AND (1 - (bc.embedding <=> $${embeddingParamIndex}::vector)) >= $${countParamIndex + 1}
+      )`);
       countParams.push(queryDto.similarityThreshold.toString());
       countParamIndex++;
+    } else {
+      countFilterConditions.push(`
+          EXISTS (
+          SELECT 1 FROM book_chunks bc 
+          WHERE bc."bookId" = b.id AND bc.embedding IS NOT NULL
+        )`);
     }
 
     if (
       queryDto.fuzzyThreshold !== undefined &&
       queryDto.fuzzyThreshold !== null
     ) {
-      countFilterConditions.push(`GREATEST(
+      countFilterConditions.push(`
+        GREATEST(
         similarity(b.title, $1),
+        COALESCE(similarity(b.description, $1), 0),
         COALESCE((
           SELECT MAX(similarity(a.name, $1))
           FROM book_authors ba
@@ -817,6 +937,11 @@ export class BookService {
           FROM book_categories bc
           JOIN categories c ON c.id = bc.category
           WHERE bc.book = b.id
+        ), 0),
+        COALESCE((
+          SELECT MAX(similarity(chk.content, $1))
+          FROM book_chunks chk
+          WHERE chk."bookId" = b.id
         ), 0)
       ) >= $${countParamIndex + 1}`);
       countParams.push(queryDto.fuzzyThreshold.toString());
