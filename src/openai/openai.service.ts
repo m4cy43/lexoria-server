@@ -15,12 +15,14 @@ export class OpenAiService {
   async generateEmbedding(
     text: string,
     model: 'small' | 'large' = 'small',
+    dimensions: number = 512,
   ): Promise<number[]> {
     const modelName =
       model === 'small' ? 'text-embedding-3-small' : 'text-embedding-3-large';
     const res = await this.client.embeddings.create({
       model: modelName,
       input: text,
+      dimensions,
     });
     return res.data[0].embedding;
   }

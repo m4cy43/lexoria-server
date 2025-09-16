@@ -1,18 +1,23 @@
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
+import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { BookQueryDto } from './dto/books-query.dto';
+import { BookChunk } from './entities/book-chunk.entity';
 import { Book } from './entities/book.entity';
 
 @Injectable()
 export class BookService {
   constructor(
     @InjectRepository(Book) private readonly bookRepository: Repository<Book>,
+    @InjectRepository(BookChunk)
+    private readonly chunkRepository: Repository<BookChunk>,
     private readonly dataSource: DataSource,
+    private readonly localEmbeddingService: LocalEmbeddingService,
     private readonly openAiService: OpenAiService,
   ) {}
 
@@ -20,65 +25,241 @@ export class BookService {
     return `${book.title} ${book.description || ''}`.trim();
   }
 
-  async attachEmbedding(book: Partial<Book>): Promise<void> {
+  chunkText(text: string, chunkSize = 1000, overlap = 100): string[] {
+    const chunks: string[] = [];
+    let start = 0;
+
+    while (start < text.length) {
+      const end = Math.min(start + chunkSize, text.length);
+      const chunk = text.slice(start, end);
+      chunks.push(chunk.trim());
+      start += chunkSize - overlap;
+    }
+
+    return chunks;
+  }
+
+  async createChunksEmbeddingsForBook(book: Book): Promise<void> {
     const text = this.prepareVectorString(book);
-    if (text) {
-      book.embedding = await this.openAiService.generateEmbedding(text);
+    if (!text) return;
+
+    const chunks = this.chunkText(text, 1000, 100);
+    if (chunks.length === 0) return;
+
+    const embeddings = await this.generateEmbeddingsBatch(chunks, 10);
+
+    const entities: BookChunk[] = chunks.map((chunk, index) =>
+      this.chunkRepository.create({
+        book,
+        chunkIndex: index,
+        content: chunk,
+        embedding: embeddings[index],
+      }),
+    );
+
+    await this.chunkRepository.save(entities);
+  }
+
+  private async generateEmbeddingsBatch(
+    texts: string[],
+    concurrency = 10,
+  ): Promise<number[][]> {
+    const results: number[][] = new Array(texts.length);
+
+    const processText = async (index: number): Promise<void> => {
+      try {
+        // results[index] = await this.localEmbeddingService.generateEmbedding(
+        //   texts[index],
+        // );
+        results[index] = await this.openAiService.generateEmbedding(
+          texts[index],
+        );
+      } catch (error) {
+        console.error(`Error generating embedding for text ${index}:`, error);
+        // Use zero vector as fallback
+        results[index] = new Array(512).fill(0);
+      }
+    };
+
+    for (let i = 0; i < texts.length; i += concurrency) {
+      const batch = texts.slice(i, i + concurrency);
+      const promises = batch.map((_, batchIndex) =>
+        processText(i + batchIndex),
+      );
+      await Promise.all(promises);
     }
+
+    return results;
   }
 
-  async createBook(data: Partial<Book>): Promise<Book> {
-    const book = this.bookRepository.create(data);
-
-    await this.attachEmbedding(book);
-
-    return this.bookRepository.save(book);
-  }
-
-  async updateMissingEmbeddingForBook(id: string): Promise<Book> {
-    const book = await this.bookRepository.findOne({
-      where: { id },
-    });
-
-    await this.attachEmbedding(book);
-    if (book.embedding) {
-      await this.bookRepository.save(book);
-    }
-
-    return book;
-  }
-
-  async updateAllMissingEmbeddings(batchSize = 100): Promise<string> {
-    const books = await this.bookRepository.find({
-      where: { embedding: null },
-    });
-    let counter = 0;
+  async createChunksEmbeddingsForBooks(
+    books: Book[],
+    batchSize = 100,
+    embeddingConcurrency = 10,
+  ): Promise<void> {
+    console.log(
+      `🚀 Processing ${books.length} books in batches of ${batchSize}`,
+    );
 
     for (let i = 0; i < books.length; i += batchSize) {
       const batch = books.slice(i, i + batchSize);
-
-      await Promise.all(
-        batch.map(async (book) => {
-          const text = this.prepareVectorString(book);
-          if (!text) return;
-
-          try {
-            book.embedding = await this.openAiService.generateEmbedding(text);
-          } catch (e) {
-            console.error(
-              `❌ Failed embedding for book ${book.id}:`,
-              e.message,
-            );
-            return;
-          }
-        }),
+      console.log(
+        `📚 Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(books.length / batchSize)}`,
       );
 
-      await this.bookRepository.save(batch.filter((b) => b.embedding));
-      counter += batch.filter((b) => b.embedding).length;
+      const batchData: Array<{
+        book: Book;
+        chunks: string[];
+      }> = [];
+
+      for (const book of batch) {
+        const text = this.prepareVectorString(book);
+        if (!text) continue;
+
+        const chunks = this.chunkText(text, 1000, 100);
+        if (chunks.length > 0) {
+          batchData.push({ book, chunks });
+        }
+      }
+
+      if (batchData.length === 0) continue;
+
+      const allChunks: string[] = [];
+      const chunkToBookMap: Array<{ bookIndex: number; chunkIndex: number }> =
+        [];
+
+      batchData.forEach((item, bookIndex) => {
+        item.chunks.forEach((chunk, chunkIndex) => {
+          allChunks.push(chunk);
+          chunkToBookMap.push({ bookIndex, chunkIndex });
+        });
+      });
+
+      console.log(`🧠 Generating ${allChunks.length} embeddings...`);
+      const allEmbeddings = await this.generateEmbeddingsBatch(
+        allChunks,
+        embeddingConcurrency,
+      );
+
+      const entities: BookChunk[] = [];
+
+      allEmbeddings.forEach((embedding, globalIndex) => {
+        const { bookIndex, chunkIndex } = chunkToBookMap[globalIndex];
+        const { book, chunks } = batchData[bookIndex];
+
+        entities.push(
+          this.chunkRepository.create({
+            book,
+            chunkIndex,
+            content: chunks[chunkIndex],
+            embedding,
+          }),
+        );
+      });
+
+      if (entities.length > 0) {
+        console.log(`💾 Saving ${entities.length} chunks to database...`);
+        await this.chunkRepository.save(entities);
+      }
+    }
+  }
+
+  async updateMissingEmbeddings(
+    bookBatchSize = 100,
+    chunkBatchSize = 100,
+    embeddingConcurrency = 10,
+    maxBooks: number = 3000,
+  ): Promise<string> {
+    console.log('🔍 Finding books without embeddings...');
+
+    const booksWithoutChunks: Book[] = [];
+    let offset = 0;
+    const queryBatchSize = 1000;
+
+    while (true) {
+      const books = await this.bookRepository
+        .createQueryBuilder('book')
+        .leftJoin('book.chunks', 'chunk')
+        .where('chunk.id IS NULL')
+        .skip(offset)
+        .take(queryBatchSize)
+        .getMany();
+
+      if (books.length === 0) break;
+
+      booksWithoutChunks.push(...books);
+      offset += queryBatchSize;
+
+      if (maxBooks && booksWithoutChunks.length >= maxBooks) {
+        booksWithoutChunks.splice(maxBooks);
+        break;
+      }
+
+      console.log(
+        `📊 Found ${booksWithoutChunks.length} books without embeddings so far...`,
+      );
     }
 
-    return `✅ Updated embeddings: ${counter}`;
+    if (booksWithoutChunks.length === 0) {
+      return '✅ All books already have embeddings!';
+    }
+
+    console.log(`📈 Total books to process: ${booksWithoutChunks.length}`);
+
+    await this.createChunksEmbeddingsForBooks(
+      booksWithoutChunks,
+      chunkBatchSize,
+      embeddingConcurrency,
+    );
+
+    return `✅ Updated embeddings for ${booksWithoutChunks.length} books`;
+  }
+
+  async updateEmbeddingsForBooks(
+    bookIds: string[],
+    batchSize = 50,
+    embeddingConcurrency = 5,
+  ): Promise<string> {
+    await this.chunkRepository
+      .createQueryBuilder()
+      .delete()
+      .where('bookId IN (:...bookIds)', { bookIds })
+      .execute();
+
+    const books = await this.bookRepository.findBy({ id: In(bookIds) });
+
+    if (books.length === 0) {
+      return '❌ No books found with provided IDs';
+    }
+
+    await this.createChunksEmbeddingsForBooks(
+      books,
+      batchSize,
+      embeddingConcurrency,
+    );
+
+    return `✅ Updated embeddings for ${books.length} books`;
+  }
+
+  async createBook(dto: Partial<Book>): Promise<Book> {
+    const book = this.bookRepository.create(dto);
+    await this.bookRepository.save(book);
+
+    const fullText = this.prepareVectorString(book);
+    const chunks = this.chunkText(fullText);
+
+    for (const text of chunks) {
+      const embedding =
+        await this.localEmbeddingService.generateEmbedding(text);
+      const chunk = this.chunkRepository.create({
+        book,
+        content: text,
+        embedding,
+      });
+      await this.chunkRepository.save(chunk);
+    }
+
+    return book;
   }
 
   async getById(id: string): Promise<Book> {

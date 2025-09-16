@@ -1,3 +1,6 @@
+import { BookService } from 'src/book/book.service';
+import { BookChunk } from 'src/book/entities/book-chunk.entity';
+import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
 
 import { Module } from '@nestjs/common';
@@ -10,7 +13,9 @@ import { Publisher } from '../publisher/entities/publisher.entity';
 import { ImportService } from './import.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Book, Author, Publisher, Category])],
-  providers: [ImportService, OpenAiService],
+  imports: [
+    TypeOrmModule.forFeature([Book, Author, Publisher, Category, BookChunk]),
+  ],
+  providers: [ImportService, BookService, LocalEmbeddingService, OpenAiService],
 })
 export class ImportModule {}

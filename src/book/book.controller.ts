@@ -1,4 +1,3 @@
-import e from 'express';
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
 import { OpenAiService } from 'src/openai/openai.service';
@@ -53,12 +52,14 @@ export class BookController {
 
   @Post('update-missing-embedding/all')
   async updateAllMissingEmbeddings() {
-    const message = await this.bookService.updateAllMissingEmbeddings();
+    const message = await this.bookService.updateMissingEmbeddings();
     return { message };
   }
 
   @Post('update-missing-embedding/:id')
   async updateMissingEmbeddings(@Param('id') id: string) {
-    return await this.bookService.updateMissingEmbeddingForBook(id);
+    return await this.bookService.updateEmbeddingsForBooks([
+      ...id.split(',').map((x) => x.trim()),
+    ]);
   }
 }

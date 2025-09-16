@@ -9,6 +9,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { GlobalQueryPipe } from './common/pipes/global-query.pipe';
 
+// import { ImportService } from './import/import.service';
+
+const tf = require('@tensorflow/tfjs');
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
@@ -70,6 +74,15 @@ async function bootstrap() {
     .build();
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, documentFactory);
+
+  // INIT LOADER
+  // try {
+  //   const importService = app.get(ImportService);
+  //   await importService.runImport();
+  //   console.log('✅ Import completed successfully!');
+  // } catch (error) {
+  //   console.error('❌ Import failed:', error);
+  // }
 
   await app.listen(process.env.PORT ?? 3001);
 }
