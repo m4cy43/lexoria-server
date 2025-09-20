@@ -13,7 +13,6 @@ import {
 
 import { BookService } from './book.service';
 import { BookQueryDto } from './dto/books-query.dto';
-import { Book } from './entities/book.entity';
 
 @Controller('books')
 export class BookController {
@@ -24,7 +23,7 @@ export class BookController {
 
   @Get()
   async bookList(@Query() query: BookQueryDto) {
-    let list: ItemsWithTotal<Book>;
+    let list;
     const { searchType, search } = query;
     if (!query.search) {
       list = await this.bookService.searchByText(query);
@@ -36,6 +35,76 @@ export class BookController {
     } else if (searchType === 'hybrid') {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByHybrid(embedding, search, query);
+    } else if (searchType === 'rag') {
+      const embedding = await this.openAiService.generateEmbedding(search);
+
+      query.chunkLoadLimit ??= 3;
+      query.similarityThreshold ??= 0.35;
+      query.limit = undefined;
+      query.skip = undefined;
+
+      list = await this.bookService.searchByVector(embedding, query);
+
+      const globalChunkLimit = query.totalChunksLimit ?? 10;
+
+      const topChunks = list.items
+        .flatMap((b) =>
+          (b.chunks ?? []).map((c, idx) => ({
+            bookId: b.id,
+            bookTitle: b.title,
+            text: `Book ID: ${b.id}\nTitle: "${b.title}"\nChunk ${idx + 1}:\n${c.content}`,
+            score: c.similarityScore,
+          })),
+        )
+        .sort((a, b) => b.score - a.score)
+        .slice(0, globalChunkLimit);
+
+      let context = topChunks.map((c) => c.text).join('\n\n');
+
+      const maxContextLength = 8000;
+      if (context.length > maxContextLength) {
+        context = context.slice(0, maxContextLength);
+      }
+
+      const systemPrompt = `You are a helpful librarian assistant.
+Recommend the most relevant books based on the provided context.
+Only recommend books that are in the list.
+Always return results as a valid JSON array of objects with fields: "id" and "reason".`;
+
+      const userPrompt = `User query: "${search}".
+Relevant book content:
+${context}
+
+Now recommend books to the user.
+Remember: output only JSON, example:
+[
+  { "id": "book-uuid-123", "reason": "Why this fits" },
+  { "id": "book-uuid-456", "reason": "Why this fits" }
+]`;
+
+      const llmRaw = await this.openAiService.askLLM(systemPrompt, userPrompt);
+      console.log('LLM raw output:', llmRaw);
+
+      let recommended: { id: string; reason: string }[] = [];
+      try {
+        recommended = JSON.parse(llmRaw);
+      } catch (e) {
+        console.error('Failed to parse LLM output:', llmRaw, e);
+      }
+
+      const recommendedBooks = recommended
+        .map((r) => {
+          const book = list.items.find((b) => b.id === r.id);
+          return book
+            ? { id: book.id, title: book.title, reason: r.reason }
+            : null;
+        })
+        .filter(Boolean);
+
+      return {
+        ...buildPaginatedResponse(list, query),
+        recommended: recommendedBooks,
+      };
     } else {
       list = await this.bookService.searchByText(query);
     }

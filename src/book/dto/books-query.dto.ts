@@ -90,4 +90,16 @@ export class BookQueryDto extends BaseQueryDto {
   @Min(0)
   @Max(1)
   fuzzyThreshold?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  chunkLoadLimit?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  totalChunksLimit?: number;
 }

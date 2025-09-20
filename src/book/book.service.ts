@@ -415,7 +415,13 @@ export class BookService {
   async searchByVector(
     embedding: number[],
     queryDto: BookQueryDto,
-  ): Promise<ItemsWithTotal<Book>> {
+  ): Promise<
+    ItemsWithTotal<
+      Book & {
+        chunks?: { id: string; content: string; similarityScore: number }[];
+      }
+    >
+  > {
     const embeddingVector = Array.isArray(embedding)
       ? `[${embedding.join(',')}]`
       : embedding;
@@ -452,8 +458,9 @@ export class BookService {
     const sql = `
       WITH ranked_chunks AS (
         SELECT 
+          bc.id,
           bc."bookId",
-          bc.embedding,
+          bc.content,
           (1 - (bc.embedding <=> $1::vector)) AS "similarityScore",
           (bc.embedding <-> $1::vector) AS distance,
           ROW_NUMBER() OVER (PARTITION BY bc."bookId" ORDER BY bc.embedding <-> $1::vector) as rn
@@ -490,14 +497,28 @@ export class BookService {
           JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
           FILTER (WHERE c.id IS NOT NULL), '[]'
         ) AS categories,
-        jsonb_build_object('id', p.id, 'name', p.name) AS publisher
+        jsonb_build_object('id', p.id, 'name', p.name) AS publisher,
+        CASE WHEN ${queryDto.chunkLoadLimit && queryDto.chunkLoadLimit > 0 ? 'TRUE' : 'FALSE'} THEN (
+          SELECT COALESCE(
+            JSON_AGG(
+              jsonb_build_object(
+                'id', rc.id,
+                'content', rc.content,
+                'similarityScore', rc."similarityScore"
+              ) ORDER BY rc."similarityScore" DESC
+            ), '[]'
+          )
+          FROM ranked_chunks rc
+          WHERE rc."bookId" = fb.id
+          LIMIT ${queryDto.chunkLoadLimit || 3}
+        ) ELSE '[]' END AS chunks
       FROM filtered_books fb
       LEFT JOIN book_authors ba ON ba.book = fb.id
       LEFT JOIN authors a ON a.id = ba.author
       LEFT JOIN book_categories bcat ON bcat.book = fb.id
       LEFT JOIN categories c ON c.id = bcat.category
       LEFT JOIN publishers p ON p.id = fb."publisherId"
-      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."similarityScore", fb.distance, p.id, p.name, p.id, p.name
+      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."similarityScore", fb.distance, p.id, p.name
       ORDER BY fb.distance
     `;
 

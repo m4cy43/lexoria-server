@@ -26,4 +26,21 @@ export class OpenAiService {
     });
     return res.data[0].embedding;
   }
+
+  async askLLM(
+    systemPrompt: string,
+    userPrompt: string,
+    model: string = 'gpt-4o-mini',
+    temperature: number = 0.7,
+  ): Promise<string> {
+    const res = await this.client.chat.completions.create({
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: temperature,
+    });
+    return res.choices[0].message?.content || '';
+  }
 }
