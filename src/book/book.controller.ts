@@ -13,6 +13,7 @@ import {
 
 import { BookService } from './book.service';
 import { BookQueryDto } from './dto/books-query.dto';
+import { Book } from './interfaces/book.interface';
 
 @Controller('books')
 export class BookController {
@@ -83,9 +84,8 @@ Remember: output only JSON, example:
 ]`;
 
       const llmRaw = await this.openAiService.askLLM(systemPrompt, userPrompt);
-      console.log('LLM raw output:', llmRaw);
 
-      let recommended: { id: string; reason: string }[] = [];
+      let recommended: Array<Book & { reason: string }> = [];
       try {
         recommended = JSON.parse(llmRaw);
       } catch (e) {
@@ -95,9 +95,7 @@ Remember: output only JSON, example:
       const recommendedBooks = recommended
         .map((r) => {
           const book = list.items.find((b) => b.id === r.id);
-          return book
-            ? { id: book.id, title: book.title, reason: r.reason }
-            : null;
+          return book ? { ...book, reason: r.reason } : null;
         })
         .filter(Boolean);
 
