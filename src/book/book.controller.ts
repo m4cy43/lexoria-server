@@ -1,6 +1,11 @@
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
 import { OpenAiService } from 'src/openai/openai.service';
+import { SearchType } from 'src/user/entities/search-log.entity';
+import { User } from 'src/user/entities/user.entity';
 
 import {
   BadRequestException,
@@ -9,7 +14,9 @@ import {
   Param,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 import { BookService } from './book.service';
 import { BookQueryDto } from './dto/books-query.dto';
@@ -23,20 +30,29 @@ export class BookController {
   ) {}
 
   @Get()
-  async bookList(@Query() query: BookQueryDto) {
-    let list;
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  async bookList(
+    @Query() query: BookQueryDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    console.log(user.sub, query);
+
     const { searchType, search } = query;
+    const startTime = Date.now();
+    let list;
+
     if (!query.search) {
       list = await this.bookService.searchByText(query);
-    } else if (searchType === 'vector') {
+    } else if (searchType === SearchType.VECTOR) {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByVector(embedding, query);
-    } else if (searchType === 'fuzzy') {
+    } else if (searchType === SearchType.FUZZY) {
       list = await this.bookService.searchByFuzzy(search, query);
-    } else if (searchType === 'hybrid') {
+    } else if (searchType === SearchType.HYBRID) {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByHybrid(embedding, search, query);
-    } else if (searchType === 'rag') {
+    } else if (searchType === SearchType.RAG) {
       const embedding = await this.openAiService.generateEmbedding(search);
 
       query.chunkLoadLimit ??= 3;
@@ -61,7 +77,6 @@ export class BookController {
         .slice(0, globalChunkLimit);
 
       let context = topChunks.map((c) => c.text).join('\n\n');
-
       const maxContextLength = 8000;
       if (context.length > maxContextLength) {
         context = context.slice(0, maxContextLength);
@@ -99,6 +114,25 @@ Remember: output only JSON, example:
         })
         .filter(Boolean);
 
+      const executionTimeMs = Date.now() - startTime;
+      const resultsCount = list.items?.length ?? 0;
+
+      // await this.bookService.logSearch(
+      //   user.sub,
+      //   (searchType as SearchType) || SearchType.TEXT,
+      //   search || '',
+      //   resultsCount,
+      //   executionTimeMs,
+      // );
+
+      console.log(
+        user.sub,
+        (searchType as SearchType) || SearchType.TEXT,
+        search || '',
+        resultsCount,
+        executionTimeMs,
+      );
+
       return {
         ...buildPaginatedResponse(list, query),
         recommended: recommendedBooks,
@@ -106,9 +140,30 @@ Remember: output only JSON, example:
     } else {
       list = await this.bookService.searchByText(query);
     }
+
     if (!list) {
       throw new BadRequestException(`Unknown search type: ${searchType}`);
     }
+
+    const executionTimeMs = Date.now() - startTime;
+    const resultsCount = list.items?.length ?? 0;
+
+    // await this.bookService.logSearch(
+    //   user.sub,
+    //   (searchType as SearchType) || SearchType.TEXT,
+    //   search || '',
+    //   resultsCount,
+    //   executionTimeMs,
+    // );
+
+    console.log(
+      user.sub,
+      (searchType as SearchType) || SearchType.TEXT,
+      search || '',
+      resultsCount,
+      executionTimeMs,
+    );
+
     return buildPaginatedResponse(list, query);
   }
 

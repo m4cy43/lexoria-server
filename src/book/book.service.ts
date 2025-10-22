@@ -1,11 +1,13 @@
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
+import { User } from 'src/user/entities/user.entity';
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import { SearchLog, SearchType } from '../user/entities/search-log.entity';
 import { BookQueryDto } from './dto/books-query.dto';
 import { BookChunk } from './entities/book-chunk.entity';
 import { Book } from './entities/book.entity';
@@ -16,6 +18,8 @@ export class BookService {
     @InjectRepository(Book) private readonly bookRepository: Repository<Book>,
     @InjectRepository(BookChunk)
     private readonly chunkRepository: Repository<BookChunk>,
+    @InjectRepository(SearchLog)
+    private readonly searchLogRepository: Repository<SearchLog>,
     private readonly dataSource: DataSource,
     private readonly localEmbeddingService: LocalEmbeddingService,
     private readonly openAiService: OpenAiService,
@@ -994,5 +998,26 @@ export class BookService {
       .getManyAndCount();
 
     return { items, total };
+  }
+
+  /**
+   * Logs search actions to the database
+   */
+  async logSearch(
+    userId: string | null,
+    searchType: SearchType,
+    queryText: string,
+    resultsCount: number,
+    executionTimeMs: number,
+  ): Promise<void> {
+    const log = this.searchLogRepository.create({
+      searchType,
+      queryText,
+      resultsCount,
+      executionTimeMs,
+      user: userId ? ({ id: userId } as any) : null,
+    });
+
+    await this.searchLogRepository.save(log);
   }
 }
