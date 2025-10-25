@@ -21,10 +21,10 @@ export class UserService {
     private readonly searchLogRepository: Repository<SearchLog>,
   ) {}
 
-  async getById(id: string): Promise<User> {
-    const user = await this.userRepository.findOne({ where: { id: id } });
+  async getById(userId: string): Promise<User> {
+    const user = await this.userRepository.findOneBy({ id: userId });
     if (!user) {
-      throw new NotFoundException(`User with ID ${id} have not found`);
+      throw new NotFoundException(`User ${userId} has not been found`);
     }
 
     return user;
@@ -90,10 +90,7 @@ export class UserService {
     resultsCount: number,
     executionTimeMs: number,
   ): Promise<void> {
-    const user = await this.userRepository.findOneBy({ id: userId });
-    if (!user) {
-      throw new NotFoundException(`User ${userId} has not been found`);
-    }
+    const user = await this.getById(userId);
 
     const log = this.searchLogRepository.create({
       searchType,
@@ -104,5 +101,17 @@ export class UserService {
     });
 
     await this.searchLogRepository.save(log);
+  }
+
+  async findUserLogs(userId: string) {
+    const user = await this.getById(userId);
+
+    const logs = await this.searchLogRepository.find({
+      where: { user: user },
+      order: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    return logs;
   }
 }
