@@ -291,17 +291,17 @@ export class BookService {
 
     if (queryDto.filter?.categories?.length) {
       qb.andWhere('category.id IN (:...categoryIds)', {
-        categoryIds: queryDto.filter.categories,
+        categoryIds: queryDto.filter.categories.flat(),
       });
     }
     if (queryDto.filter?.authors?.length) {
       qb.andWhere('author.id IN (:...authorIds)', {
-        authorIds: queryDto.filter.authors,
+        authorIds: queryDto.filter.authors.flat(),
       });
     }
     if (queryDto.filter?.publishers?.length) {
       qb.andWhere('publisher.id IN (:...publisherIds)', {
-        publisherIds: queryDto.filter.publishers,
+        publisherIds: queryDto.filter.publishers.flat(),
       });
     }
     if (queryDto.filter?.publishedDateRange?.length === 2) {

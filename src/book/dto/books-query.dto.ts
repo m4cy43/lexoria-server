@@ -45,34 +45,25 @@ export class BookSort {
 export class BookFilters {
   @ApiPropertyOptional({
     example: ['b2df5f27-21e3-4e3e-9a1a-beb97f8f8735'],
+    description: 'Array of category UUIDs',
   })
   @IsArray()
-  @IsUUID('4', {
-    each: true,
-    message: 'Each category ID must be a valid UUID v4',
-  })
   @IsOptional()
   categories?: string[];
 
   @ApiPropertyOptional({
     example: ['8f6b8a1a-9e26-4f6a-9f0b-9b7a8c34e7e0'],
+    description: 'Array of author UUIDs',
   })
   @IsArray()
-  @IsUUID('4', {
-    each: true,
-    message: 'Each author ID must be a valid UUID v4',
-  })
   @IsOptional()
   authors?: string[];
 
   @ApiPropertyOptional({
     example: ['6a7f2a7a-9c7e-4b0f-98d7-24b4b9d4a8f2'],
+    description: 'Array of publisher UUIDs',
   })
   @IsArray()
-  @IsUUID('4', {
-    each: true,
-    message: 'Each publisher ID must be a valid UUID v4',
-  })
   @IsOptional()
   publishers?: string[];
 

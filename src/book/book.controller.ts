@@ -36,7 +36,7 @@ export class BookController {
     @Query() query: BookQueryDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    console.log(user.sub, query);
+    console.log(user.sub, query, query.filter);
 
     const { searchType, search } = query;
     const startTime = Date.now();
@@ -157,7 +157,21 @@ Remember: output only JSON, example:
 
   @Get(':id')
   async bookDetails(@Param('id') id: string) {
-    return await this.bookService.getById(id);
+    const book = await this.bookService.getById(id);
+    const preparedString = this.bookService.prepareVectorString(book);
+    const embedding =
+      await this.openAiService.generateEmbedding(preparedString);
+    const similarBooks = await this.bookService.searchByVector(embedding, {
+      similarityThreshold: 0.1,
+      limit: 6,
+    });
+
+    return {
+      ...book,
+      similarBooks: similarBooks.items
+        .filter((b) => b.id !== book.id)
+        .slice(0, 5),
+    };
   }
 
   @Post('update-missing-embedding/all')
