@@ -1,3 +1,5 @@
+import { BookService } from 'src/book/book.service';
+import { Book } from 'src/book/entities/book.entity';
 import { Repository } from 'typeorm';
 
 import {
@@ -110,7 +112,7 @@ export class UserService {
       AND id NOT IN (
         SELECT id FROM search_logs
         WHERE "userId" = $1
-        ORDER BY "updatedAt" DESC, "createdAt" DESC
+        ORDER BY "createdAt" DESC
         LIMIT 10
       )
     `,
@@ -122,11 +124,46 @@ export class UserService {
     const user = await this.getById(userId);
 
     const logs = await this.searchLogRepository.find({
-      where: { user: user },
+      where: { user: { id: user.id } },
       order: { createdAt: 'desc' },
       take: limit,
     });
 
     return logs;
+  }
+
+  async addToFavorite(user: User, book: Book) {
+    const favorite = await this.favoriteRepository.findOneBy({
+      user: { id: user.id },
+      book: { id: book.id },
+    });
+    if (favorite) {
+      await this.favoriteRepository.remove(favorite);
+    } else {
+      const newFavorite = this.favoriteRepository.create({ user, book });
+      await this.favoriteRepository.save(newFavorite);
+    }
+    return { success: true };
+  }
+
+  async favoriteList(userId: string, limit: number = 5) {
+    const user = await this.getById(userId);
+
+    const logs = await this.favoriteRepository.find({
+      relations: { book: true },
+      where: { user: { id: user.id } },
+      order: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return logs;
+  }
+
+  async isInFavoriteList(userId: string, bookId: string) {
+    const user = await this.getById(userId);
+    return await this.favoriteRepository.findOneBy({
+      user: { id: user.id },
+      book: { id: bookId },
+    });
   }
 }

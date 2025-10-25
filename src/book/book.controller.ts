@@ -156,15 +156,41 @@ Remember: output only JSON, example:
   }
 
   @Get('recommendations')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   async userRecommendations(
     @Query() query: any,
     @CurrentUser() user: JwtPayload,
   ) {
     const logs = await this.userService.findUserLogs(user.sub, 5);
+    const favorites = await this.userService.favoriteList(user.sub, 5);
+    return await this.bookService.recommendForUser(
+      favorites.map((f) => f.book),
+      logs,
+    );
+  }
+
+  @Post(':id/favorite')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  async setFavorite(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: JwtPayload,
+  ) {
+    const book = await this.bookService.getById(id);
+    const user = await this.userService.getById(currentUser.sub);
+
+    return await this.userService.addToFavorite(user, book);
   }
 
   @Get(':id')
-  async bookDetails(@Param('id') id: string, @Query() query: any) {
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  async bookDetails(
+    @Param('id') id: string,
+    @Query() query: any,
+    @CurrentUser() currentUser: JwtPayload,
+  ) {
     const { limit = 5 } = query;
 
     const book = await this.bookService.getById(id);
@@ -175,12 +201,17 @@ Remember: output only JSON, example:
       similarityThreshold: 0.1,
       limit: limit + 1,
     });
+    const isFavorite = await this.userService.isInFavoriteList(
+      currentUser.sub,
+      id,
+    );
 
     return {
       ...book,
       similarBooks: similarBooks.items
         .filter((b) => b.id !== book.id)
         .slice(0, limit),
+      isFavorite: isFavorite ? true : false,
     };
   }
 

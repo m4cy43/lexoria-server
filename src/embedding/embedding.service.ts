@@ -27,38 +27,31 @@ export class LocalEmbeddingService {
     return arr[0];
   }
 
-  averageEmbedding(embeddings: number[][]): number[] {
-    if (!embeddings.length) return [];
-    const dim = embeddings[0].length;
-    const sum = new Array(dim).fill(0);
-
-    for (const emb of embeddings) {
-      for (let i = 0; i < dim; i++) {
-        sum[i] += emb[i];
-      }
-    }
-
-    return sum.map((x) => x / embeddings.length);
-  }
-
-  weightedAverageEmbedding(
-    groups: { embeddings: number[][]; weight: number }[],
+  meanVector(
+    vectors: { vector: number[]; weight?: number }[] | number[][],
   ): number[] {
-    const dim = groups[0]?.embeddings[0]?.length || 0;
-    if (!dim) return [];
+    if (!Array.isArray(vectors) || vectors.length === 0) return [];
+    const withWeights =
+      'vector' in vectors[0]
+        ? (vectors as { vector: number[]; weight?: number }[])
+        : (vectors as number[][]).map((v) => ({ vector: v, weight: 1 }));
 
+    const dim = withWeights[0].vector.length;
     const sum = new Array(dim).fill(0);
     let totalWeight = 0;
 
-    for (const { embeddings, weight } of groups) {
-      if (!embeddings.length) continue;
-      const avg = this.averageEmbedding(embeddings);
-      for (let i = 0; i < dim; i++) {
-        sum[i] += avg[i] * weight;
-      }
+    for (const { vector, weight = 1 } of withWeights) {
       totalWeight += weight;
+      for (let i = 0; i < dim; i++) sum[i] += vector[i] * weight;
     }
-
     return sum.map((x) => x / totalWeight);
+  }
+
+  cosineSimilarity(a: number[], b: number[]): number {
+    if (!a.length || !b.length) return 0;
+    const dot = a.reduce((acc, v, i) => acc + v * b[i], 0);
+    const normA = Math.sqrt(a.reduce((acc, v) => acc + v * v, 0));
+    const normB = Math.sqrt(b.reduce((acc, v) => acc + v * v, 0));
+    return dot / (normA * normB);
   }
 }

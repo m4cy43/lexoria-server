@@ -4,6 +4,7 @@ import {
   Entity,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
 } from 'typeorm';
 
 import { User } from './user.entity';
@@ -17,6 +18,7 @@ export enum SearchType {
 }
 
 @Entity('search_logs')
+@Unique(['user', 'queryText'])
 export class SearchLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;

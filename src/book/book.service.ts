@@ -1,6 +1,7 @@
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
+import { SearchLog } from 'src/user/entities/search-log.entity';
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -982,6 +983,45 @@ export class BookService {
     const totalRes = await this.dataSource.query(countSql, countParams);
 
     return { items: books, total: Number(totalRes[0]?.total || 0) };
+  }
+
+  async recommendForUser(
+    favorites: Book[],
+    logs: SearchLog[],
+    limit = 10,
+  ): Promise<Book[]> {
+    if (!favorites.length && !logs.length) return [];
+
+    const favEmbeddings = await Promise.all(
+      favorites.map(async (f) => {
+        const text = `${f.title} ${f.description ?? ''}`;
+        return await this.localEmbeddingService.generateEmbedding(text);
+      }),
+    );
+
+    const logEmbeddings = await Promise.all(
+      logs.map(async (l) => {
+        return await this.localEmbeddingService.generateEmbedding(l.queryText);
+      }),
+    );
+
+    const favVector = this.localEmbeddingService.meanVector(favEmbeddings);
+    const logVector = this.localEmbeddingService.meanVector(logEmbeddings);
+    const userVector = this.localEmbeddingService.meanVector([
+      { vector: favVector, weight: 0.6 },
+      { vector: logVector, weight: 0.4 },
+    ]);
+
+    if (!userVector?.length) return [];
+
+    const candidates = await this.searchByVector(userVector, { limit });
+
+    const favoriteIds = new Set(favorites.map((f) => f.id));
+    const recommendations = candidates.items.filter(
+      (b) => !favoriteIds.has(b.id),
+    );
+
+    return recommendations;
   }
 
   private async executeWithPagination(
