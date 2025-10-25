@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { Favorite } from './entities/favorite.entity';
 import { SearchLog, SearchType } from './entities/search-log.entity';
 import { User } from './entities/user.entity';
 
@@ -19,6 +20,8 @@ export class UserService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(SearchLog)
     private readonly searchLogRepository: Repository<SearchLog>,
+    @InjectRepository(Favorite)
+    private readonly favoriteRepository: Repository<Favorite>,
   ) {}
 
   async getById(userId: string): Promise<User> {
@@ -80,9 +83,6 @@ export class UserService {
     await this.userRepository.update(id, user);
   }
 
-  /**
-   * Logs search actions to the database
-   */
   async logSearch(
     userId: string,
     searchType: SearchType,
@@ -92,24 +92,39 @@ export class UserService {
   ): Promise<void> {
     const user = await this.getById(userId);
 
-    const log = this.searchLogRepository.create({
-      searchType,
-      queryText,
-      resultsCount,
-      executionTimeMs,
-      user: user,
-    });
+    await this.searchLogRepository.upsert(
+      {
+        user,
+        searchType,
+        queryText,
+        resultsCount,
+        executionTimeMs,
+      },
+      ['user', 'queryText'],
+    );
 
-    await this.searchLogRepository.save(log);
+    await this.searchLogRepository.query(
+      `
+      DELETE FROM search_logs
+      WHERE "userId" = $1
+      AND id NOT IN (
+        SELECT id FROM search_logs
+        WHERE "userId" = $1
+        ORDER BY "updatedAt" DESC, "createdAt" DESC
+        LIMIT 10
+      )
+    `,
+      [userId],
+    );
   }
 
-  async findUserLogs(userId: string) {
+  async findUserLogs(userId: string, limit: number = 5) {
     const user = await this.getById(userId);
 
     const logs = await this.searchLogRepository.find({
       where: { user: user },
       order: { createdAt: 'desc' },
-      take: 5,
+      take: limit,
     });
 
     return logs;

@@ -181,7 +181,7 @@ export class BookService {
     bookBatchSize = 100,
     chunkBatchSize = 100,
     embeddingConcurrency = 10,
-    maxBooks = 1000,
+    maxBooks = 10000,
   ): Promise<string> {
     console.log('🔍 Finding books without embeddings...');
 

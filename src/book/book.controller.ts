@@ -155,22 +155,32 @@ Remember: output only JSON, example:
     return buildPaginatedResponse(list, query);
   }
 
+  @Get('recommendations')
+  async userRecommendations(
+    @Query() query: any,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const logs = await this.userService.findUserLogs(user.sub, 5);
+  }
+
   @Get(':id')
-  async bookDetails(@Param('id') id: string) {
+  async bookDetails(@Param('id') id: string, @Query() query: any) {
+    const { limit = 5 } = query;
+
     const book = await this.bookService.getById(id);
     const preparedString = this.bookService.prepareVectorString(book);
     const embedding =
       await this.openAiService.generateEmbedding(preparedString);
     const similarBooks = await this.bookService.searchByVector(embedding, {
       similarityThreshold: 0.1,
-      limit: 6,
+      limit: limit + 1,
     });
 
     return {
       ...book,
       similarBooks: similarBooks.items
         .filter((b) => b.id !== book.id)
-        .slice(0, 5),
+        .slice(0, limit),
     };
   }
 
