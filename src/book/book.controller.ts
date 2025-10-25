@@ -1,11 +1,10 @@
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
-import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
 import { OpenAiService } from 'src/openai/openai.service';
 import { SearchType } from 'src/user/entities/search-log.entity';
-import { User } from 'src/user/entities/user.entity';
+import { UserService } from 'src/user/user.service';
 
 import {
   BadRequestException,
@@ -27,6 +26,7 @@ export class BookController {
   constructor(
     private readonly openAiService: OpenAiService,
     private readonly bookService: BookService,
+    private readonly userService: UserService,
   ) {}
 
   @Get()
@@ -117,21 +117,15 @@ Remember: output only JSON, example:
       const executionTimeMs = Date.now() - startTime;
       const resultsCount = list.items?.length ?? 0;
 
-      // await this.bookService.logSearch(
-      //   user.sub,
-      //   (searchType as SearchType) || SearchType.TEXT,
-      //   search || '',
-      //   resultsCount,
-      //   executionTimeMs,
-      // );
-
-      console.log(
-        user.sub,
-        (searchType as SearchType) || SearchType.TEXT,
-        search || '',
-        resultsCount,
-        executionTimeMs,
-      );
+      if (query.search) {
+        await this.userService.logSearch(
+          user.sub,
+          (searchType as SearchType) || SearchType.TEXT,
+          search || '',
+          resultsCount,
+          executionTimeMs,
+        );
+      }
 
       return {
         ...buildPaginatedResponse(list, query),
@@ -148,21 +142,15 @@ Remember: output only JSON, example:
     const executionTimeMs = Date.now() - startTime;
     const resultsCount = list.items?.length ?? 0;
 
-    // await this.bookService.logSearch(
-    //   user.sub,
-    //   (searchType as SearchType) || SearchType.TEXT,
-    //   search || '',
-    //   resultsCount,
-    //   executionTimeMs,
-    // );
-
-    console.log(
-      user.sub,
-      (searchType as SearchType) || SearchType.TEXT,
-      search || '',
-      resultsCount,
-      executionTimeMs,
-    );
+    if (query.search) {
+      await this.userService.logSearch(
+        user.sub,
+        (searchType as SearchType) || SearchType.TEXT,
+        search || '',
+        resultsCount,
+        executionTimeMs,
+      );
+    }
 
     return buildPaginatedResponse(list, query);
   }

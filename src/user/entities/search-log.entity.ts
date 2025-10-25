@@ -21,7 +21,7 @@ export class SearchLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => User, { nullable: true })
+  @ManyToOne(() => User)
   user: User;
 
   @Column({

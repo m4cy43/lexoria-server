@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { SearchLog, SearchType } from './entities/search-log.entity';
 import { User } from './entities/user.entity';
 
 @Injectable()
@@ -16,6 +17,8 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(SearchLog)
+    private readonly searchLogRepository: Repository<SearchLog>,
   ) {}
 
   async getById(id: string): Promise<User> {
@@ -75,5 +78,31 @@ export class UserService {
     }
 
     await this.userRepository.update(id, user);
+  }
+
+  /**
+   * Logs search actions to the database
+   */
+  async logSearch(
+    userId: string,
+    searchType: SearchType,
+    queryText: string,
+    resultsCount: number,
+    executionTimeMs: number,
+  ): Promise<void> {
+    const user = await this.userRepository.findOneBy({ id: userId });
+    if (!user) {
+      throw new NotFoundException(`User ${userId} has not been found`);
+    }
+
+    const log = this.searchLogRepository.create({
+      searchType,
+      queryText,
+      resultsCount,
+      executionTimeMs,
+      user: user,
+    });
+
+    await this.searchLogRepository.save(log);
   }
 }
