@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Favorite } from './entities/favorite.entity';
+import { LastSeen } from './entities/lastseen.entity';
 import { SearchLog, SearchType } from './entities/search-log.entity';
 import { User } from './entities/user.entity';
 
@@ -24,6 +25,8 @@ export class UserService {
     private readonly searchLogRepository: Repository<SearchLog>,
     @InjectRepository(Favorite)
     private readonly favoriteRepository: Repository<Favorite>,
+    @InjectRepository(LastSeen)
+    private readonly lastSeenRepository: Repository<LastSeen>,
   ) {}
 
   async getById(userId: string): Promise<User> {
@@ -120,8 +123,14 @@ export class UserService {
     );
   }
 
-  async findUserLogs(userId: string, limit: number = 5) {
-    const user = await this.getById(userId);
+  private isUser(obj: unknown): obj is User {
+    return typeof obj === 'object' && obj !== null && 'id' in obj;
+  }
+
+  async findUserLogs(userOrId: string | User, limit: number = 5) {
+    const user = this.isUser(userOrId)
+      ? userOrId
+      : await this.getById(userOrId);
 
     const logs = await this.searchLogRepository.find({
       where: { user: { id: user.id } },
@@ -146,8 +155,10 @@ export class UserService {
     return { success: true };
   }
 
-  async favoriteList(userId: string, limit: number = 5) {
-    const user = await this.getById(userId);
+  async favoriteList(userOrId: string | User, limit: number = 5) {
+    const user = this.isUser(userOrId)
+      ? userOrId
+      : await this.getById(userOrId);
 
     const logs = await this.favoriteRepository.find({
       relations: { book: true },
@@ -165,5 +176,53 @@ export class UserService {
       user: { id: user.id },
       book: { id: bookId },
     });
+  }
+
+  async addToLastSeen(userOrId: string | User, book: Book, limit = 10) {
+    const user = this.isUser(userOrId)
+      ? userOrId
+      : await this.getById(userOrId);
+
+    const existing = await this.lastSeenRepository.findOne({
+      where: { user: { id: user.id }, book: { id: book.id } },
+    });
+
+    if (existing) {
+      await this.lastSeenRepository.remove(existing);
+    }
+
+    const newLastSeen = this.lastSeenRepository.create({ user, book });
+    await this.lastSeenRepository.save(newLastSeen);
+
+    await this.lastSeenRepository.query(
+      `
+      DELETE FROM last_seen
+      WHERE "userId" = $1
+      AND id NOT IN (
+        SELECT id FROM last_seen
+        WHERE "userId" = $1
+        ORDER BY "createdAt" DESC
+        LIMIT $2
+      )
+    `,
+      [user.id, limit],
+    );
+
+    return { success: true };
+  }
+
+  async lastSeenList(userOrId: string | User, limit: number = 5) {
+    const user = this.isUser(userOrId)
+      ? userOrId
+      : await this.getById(userOrId);
+
+    const lastSeen = await this.lastSeenRepository.find({
+      relations: { book: true },
+      where: { user: { id: user.id } },
+      order: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return lastSeen;
   }
 }

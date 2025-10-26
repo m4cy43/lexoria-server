@@ -17,8 +17,17 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   async bookList(
     @Query() query: BaseQueryDto,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() userPayload: JwtPayload,
   ) {
-    return await this.userService.findUserLogs(user.sub, query.limit);
+    const user = await this.userService.getById(userPayload.sub);
+    const searchLogs = await this.userService.findUserLogs(user, query.limit);
+    const favorites = await this.userService.favoriteList(user, query.limit);
+    const lastSeen = await this.userService.lastSeenList(user, query.limit);
+
+    return {
+      searchLogs,
+      lastSeen,
+      favorites,
+    };
   }
 }
