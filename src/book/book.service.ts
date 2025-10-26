@@ -1,7 +1,7 @@
+import pLimit from 'p-limit';
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
-import { SearchLog } from 'src/user/entities/search-log.entity';
 import { User } from 'src/user/entities/user.entity';
 import { UserService } from 'src/user/user.service';
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
@@ -991,7 +991,7 @@ export class BookService {
   async recommendForUser(
     userOrId: string | User,
     queryDto: BookQueryDto,
-    listLimit: number = 5,
+    listLimit = 5,
   ): Promise<ItemsWithTotal<Book>> {
     const user = this.userService.isUser(userOrId)
       ? userOrId
@@ -1003,34 +1003,49 @@ export class BookService {
       this.userService.lastSeenList(user, listLimit),
     ]);
 
-    const favoriteBooks = favorites.map((f) => f.book);
-    const lastSeenBooks = lastSeen.map((l) => l.book);
-
     const uniqueSeen = new Map<string, Book>();
-    for (const b of [...favoriteBooks, ...lastSeenBooks]) {
+    for (const b of [
+      ...favorites.map((f) => f.book),
+      ...lastSeen.map((l) => l.book),
+    ]) {
       uniqueSeen.set(b.id, b);
     }
 
     const searchTexts = new Set(logs.map((l) => l.queryText));
 
-    // Generate embeddings
+    const limit = pLimit(3);
+
     const favEmbeddings = await Promise.all(
       [...uniqueSeen.values()].map((b) =>
-        this.openAiService
-          .generateEmbedding(`${b.title} ${b.description ?? ''}`)
-          .catch(),
+        limit(() =>
+          this.openAiService
+            .generateEmbedding(`${b.title} ${b.description ?? ''}`)
+            .catch((e) => {
+              console.error('Fav embedding error:', e.message);
+              return null;
+            }),
+        ),
       ),
     );
 
     const logEmbeddings = await Promise.all(
-      [...searchTexts].map((text) =>
-        this.openAiService.generateEmbedding(text).catch(),
+      [...searchTexts].map((t) =>
+        limit(() =>
+          this.openAiService.generateEmbedding(t).catch((e) => {
+            console.error('Log embedding error:', e.message);
+            return null;
+          }),
+        ),
       ),
     );
 
-    // Weighted mean
-    const favVector = this.localEmbeddingService.meanVector(favEmbeddings);
-    const logVector = this.localEmbeddingService.meanVector(logEmbeddings);
+    const favVector = this.localEmbeddingService.meanVector(
+      favEmbeddings.filter(Boolean),
+    );
+    const logVector = this.localEmbeddingService.meanVector(
+      logEmbeddings.filter(Boolean),
+    );
+
     const userVector = this.localEmbeddingService.meanVector([
       { vector: favVector, weight: 0.7 },
       { vector: logVector, weight: 0.3 },
@@ -1038,13 +1053,8 @@ export class BookService {
 
     if (!userVector?.length) return { items: [], total: 0 };
 
-    const candidates = await this.searchByVector(userVector, queryDto);
-
-    return candidates;
-    // const excludeIds = new Set([...uniqueSeen.keys()]);
-    // return candidates.items.filter((b) => !excludeIds.has(b.id));
+    return await this.searchByVector(userVector, queryDto);
   }
-
   private async executeWithPagination(
     qb: SelectQueryBuilder<Book>,
     queryDto: BookQueryDto,
