@@ -2,6 +2,8 @@ import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
 import { SearchLog } from 'src/user/entities/search-log.entity';
+import { User } from 'src/user/entities/user.entity';
+import { UserService } from 'src/user/user.service';
 import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -20,6 +22,7 @@ export class BookService {
     private readonly dataSource: DataSource,
     private readonly localEmbeddingService: LocalEmbeddingService,
     private readonly openAiService: OpenAiService,
+    private readonly userService: UserService,
   ) {}
 
   prepareVectorString(book: Partial<Book>): string {
@@ -986,42 +989,60 @@ export class BookService {
   }
 
   async recommendForUser(
-    favorites: Book[],
-    logs: SearchLog[],
-    limit = 10,
-  ): Promise<Book[]> {
-    if (!favorites.length && !logs.length) return [];
+    userOrId: string | User,
+    queryDto: BookQueryDto,
+    listLimit: number = 5,
+  ): Promise<ItemsWithTotal<Book>> {
+    const user = this.userService.isUser(userOrId)
+      ? userOrId
+      : await this.userService.getById(userOrId);
 
+    const [logs, favorites, lastSeen] = await Promise.all([
+      this.userService.findUserLogs(user, listLimit),
+      this.userService.favoriteList(user, listLimit),
+      this.userService.lastSeenList(user, listLimit),
+    ]);
+
+    const favoriteBooks = favorites.map((f) => f.book);
+    const lastSeenBooks = lastSeen.map((l) => l.book);
+
+    const uniqueSeen = new Map<string, Book>();
+    for (const b of [...favoriteBooks, ...lastSeenBooks]) {
+      uniqueSeen.set(b.id, b);
+    }
+
+    const searchTexts = new Set(logs.map((l) => l.queryText));
+
+    // Generate embeddings
     const favEmbeddings = await Promise.all(
-      favorites.map(async (f) => {
-        const text = `${f.title} ${f.description ?? ''}`;
-        return await this.localEmbeddingService.generateEmbedding(text);
-      }),
+      [...uniqueSeen.values()].map((b) =>
+        this.openAiService
+          .generateEmbedding(`${b.title} ${b.description ?? ''}`)
+          .catch(),
+      ),
     );
 
     const logEmbeddings = await Promise.all(
-      logs.map(async (l) => {
-        return await this.localEmbeddingService.generateEmbedding(l.queryText);
-      }),
+      [...searchTexts].map((text) =>
+        this.openAiService.generateEmbedding(text).catch(),
+      ),
     );
 
+    // Weighted mean
     const favVector = this.localEmbeddingService.meanVector(favEmbeddings);
     const logVector = this.localEmbeddingService.meanVector(logEmbeddings);
     const userVector = this.localEmbeddingService.meanVector([
-      { vector: favVector, weight: 0.6 },
-      { vector: logVector, weight: 0.4 },
+      { vector: favVector, weight: 0.7 },
+      { vector: logVector, weight: 0.3 },
     ]);
 
-    if (!userVector?.length) return [];
+    if (!userVector?.length) return { items: [], total: 0 };
 
-    const candidates = await this.searchByVector(userVector, { limit });
+    const candidates = await this.searchByVector(userVector, queryDto);
 
-    const favoriteIds = new Set(favorites.map((f) => f.id));
-    const recommendations = candidates.items.filter(
-      (b) => !favoriteIds.has(b.id),
-    );
-
-    return recommendations;
+    return candidates;
+    // const excludeIds = new Set([...uniqueSeen.keys()]);
+    // return candidates.items.filter((b) => !excludeIds.has(b.id));
   }
 
   private async executeWithPagination(

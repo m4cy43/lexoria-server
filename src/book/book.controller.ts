@@ -1,6 +1,7 @@
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
+import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
 import { OpenAiService } from 'src/openai/openai.service';
 import { SearchType } from 'src/user/entities/search-log.entity';
@@ -34,16 +35,23 @@ export class BookController {
   @UseGuards(JwtAuthGuard)
   async bookList(
     @Query() query: BookQueryDto,
-    @CurrentUser() user: JwtPayload,
+    @CurrentUser() userPayload: JwtPayload,
   ) {
-    console.log(user.sub, query, query.filter);
+    console.log(userPayload.sub, query, query.filter);
+
+    const user = await this.userService.getById(userPayload.sub);
 
     const { searchType, search } = query;
     const startTime = Date.now();
     let list;
 
     if (!query.search) {
-      list = await this.bookService.searchByText(query);
+      // Try to make recommendations
+      list = await this.bookService.recommendForUser(user, query);
+
+      if (!list.items.length) {
+        list = await this.bookService.searchByText(query);
+      }
     } else if (searchType === SearchType.VECTOR) {
       const embedding = await this.openAiService.generateEmbedding(search);
       list = await this.bookService.searchByVector(embedding, query);
@@ -57,10 +65,12 @@ export class BookController {
 
       query.chunkLoadLimit ??= 3;
       query.similarityThreshold ??= 0.35;
-      query.limit = undefined;
+      query.limit = 20;
       query.skip = undefined;
 
       list = await this.bookService.searchByVector(embedding, query);
+
+      console.log(list);
 
       const globalChunkLimit = query.totalChunksLimit ?? 10;
 
@@ -91,7 +101,7 @@ Always return results as a valid JSON array of objects with fields: "id" and "re
 Relevant book content:
 ${context}
 
-Now recommend books to the user.
+Now recommend reasonable amount of books (2-5) to the user.
 Remember: output only JSON, example:
 [
   { "id": "book-uuid-123", "reason": "Why this fits" },
@@ -100,11 +110,14 @@ Remember: output only JSON, example:
 
       const llmRaw = await this.openAiService.askLLM(systemPrompt, userPrompt);
 
-      let recommended: Array<Book & { reason: string }> = [];
-      try {
-        recommended = JSON.parse(llmRaw);
-      } catch (e) {
-        console.error('Failed to parse LLM output:', llmRaw, e);
+      let recommended: Array<{ id: string; reason: string }> = [];
+
+      const parsed =
+        this.safeJsonParse<Array<{ id: string; reason: string }>>(llmRaw);
+      if (parsed) {
+        recommended = parsed;
+      } else {
+        console.warn('Falling back to empty list or retrying...');
       }
 
       const recommendedBooks = recommended
@@ -115,11 +128,11 @@ Remember: output only JSON, example:
         .filter(Boolean);
 
       const executionTimeMs = Date.now() - startTime;
-      const resultsCount = list.items?.length ?? 0;
+      const resultsCount = list.total ?? 0;
 
       if (query.search) {
         await this.userService.logSearch(
-          user.sub,
+          user,
           (searchType as SearchType) || SearchType.TEXT,
           search || '',
           resultsCount,
@@ -140,11 +153,11 @@ Remember: output only JSON, example:
     }
 
     const executionTimeMs = Date.now() - startTime;
-    const resultsCount = list.items?.length ?? 0;
+    const resultsCount = list.total ?? 0;
 
     if (query.search) {
       await this.userService.logSearch(
-        user.sub,
+        user,
         (searchType as SearchType) || SearchType.TEXT,
         search || '',
         resultsCount,
@@ -155,19 +168,20 @@ Remember: output only JSON, example:
     return buildPaginatedResponse(list, query);
   }
 
-  @Get('recommendations')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  async userRecommendations(
-    @Query() query: any,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    const logs = await this.userService.findUserLogs(user.sub, 5);
-    const favorites = await this.userService.favoriteList(user.sub, 5);
-    return await this.bookService.recommendForUser(
-      favorites.map((f) => f.book),
-      logs,
-    );
+  safeJsonParse<T = any>(raw: string): T | null {
+    try {
+      // Remove code fences like ```json or ```
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?/, '') // remove starting ```json
+        .replace(/```$/, '') // remove ending ```
+        .trim();
+
+      return JSON.parse(cleaned);
+    } catch (e) {
+      console.error('Failed to parse JSON:', e);
+      return null;
+    }
   }
 
   @Post(':id/favorite')
@@ -205,6 +219,11 @@ Remember: output only JSON, example:
       currentUser.sub,
       id,
     );
+
+    // Add last seen - fire and forget
+    void this.userService
+      .addToLastSeen(currentUser.sub, book)
+      .catch((e) => console.log(e));
 
     return {
       ...book,

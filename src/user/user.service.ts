@@ -88,14 +88,20 @@ export class UserService {
     await this.userRepository.update(id, user);
   }
 
+  isUser(obj: unknown): obj is User {
+    return typeof obj === 'object' && obj !== null && 'id' in obj;
+  }
+
   async logSearch(
-    userId: string,
+    userOrId: string | User,
     searchType: SearchType,
     queryText: string,
     resultsCount: number,
     executionTimeMs: number,
   ): Promise<void> {
-    const user = await this.getById(userId);
+    const user = this.isUser(userOrId)
+      ? userOrId
+      : await this.getById(userOrId);
 
     await this.searchLogRepository.upsert(
       {
@@ -119,12 +125,8 @@ export class UserService {
         LIMIT 10
       )
     `,
-      [userId],
+      [user.id],
     );
-  }
-
-  private isUser(obj: unknown): obj is User {
-    return typeof obj === 'object' && obj !== null && 'id' in obj;
   }
 
   async findUserLogs(userOrId: string | User, limit: number = 5) {
