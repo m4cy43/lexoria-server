@@ -92,14 +92,14 @@ export class BookQueryDto extends BaseQueryDto {
   @IsNumber()
   @Min(0)
   @Max(1)
-  similarityThreshold?: number = 0.001;
+  similarityThreshold?: number = 0.35;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(1)
-  fuzzyThreshold?: number = 0.001;
+  fuzzyThreshold?: number = 0.35;
 
   @ApiPropertyOptional()
   @IsOptional()

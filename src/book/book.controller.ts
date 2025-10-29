@@ -3,6 +3,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtPayload } from 'src/auth/interfaces/jwt-payload.interface';
 import { ItemsWithTotal } from 'src/common/interfaces/pagination.interface';
 import { buildPaginatedResponse } from 'src/common/utils/pagination.util';
+import { LocalEmbeddingService } from 'src/embedding/embedding.service';
 import { OpenAiService } from 'src/openai/openai.service';
 import { SearchType } from 'src/user/entities/search-log.entity';
 import { UserService } from 'src/user/user.service';
@@ -28,6 +29,7 @@ export class BookController {
     private readonly openAiService: OpenAiService,
     private readonly bookService: BookService,
     private readonly userService: UserService,
+    private readonly localEmbeddingService: LocalEmbeddingService,
   ) {}
 
   @Get()
@@ -53,15 +55,33 @@ export class BookController {
         list = await this.bookService.searchByText(query);
       }
     } else if (searchType === SearchType.VECTOR) {
-      const embedding = await this.openAiService.generateEmbedding(search);
+      const userInterestVector =
+        await this.bookService.userInterestVector(user);
+      const searchVector = await this.openAiService.generateEmbedding(search);
+      const embedding = await this.localEmbeddingService.meanVector([
+        { vector: searchVector, weight: 0.8 },
+        { vector: userInterestVector, weight: 0.2 },
+      ]);
       list = await this.bookService.searchByVector(embedding, query);
     } else if (searchType === SearchType.FUZZY) {
       list = await this.bookService.searchByFuzzy(search, query);
     } else if (searchType === SearchType.HYBRID) {
-      const embedding = await this.openAiService.generateEmbedding(search);
+      const userInterestVector =
+        await this.bookService.userInterestVector(user);
+      const searchVector = await this.openAiService.generateEmbedding(search);
+      const embedding = await this.localEmbeddingService.meanVector([
+        { vector: searchVector, weight: 0.8 },
+        { vector: userInterestVector, weight: 0.2 },
+      ]);
       list = await this.bookService.searchByHybrid(embedding, search, query);
     } else if (searchType === SearchType.RAG) {
-      const embedding = await this.openAiService.generateEmbedding(search);
+      const userInterestVector =
+        await this.bookService.userInterestVector(user);
+      const searchVector = await this.openAiService.generateEmbedding(search);
+      const embedding = await this.localEmbeddingService.meanVector([
+        { vector: searchVector, weight: 0.8 },
+        { vector: userInterestVector, weight: 0.2 },
+      ]);
 
       query.chunkLoadLimit ??= 3;
       query.similarityThreshold ??= 0.35;

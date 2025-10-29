@@ -988,6 +988,71 @@ export class BookService {
     return { items: books, total: Number(totalRes[0]?.total || 0) };
   }
 
+  async userInterestVector(
+    userOrId: string | User,
+    listLimit = 5,
+  ): Promise<number[]> {
+    const user = this.userService.isUser(userOrId)
+      ? userOrId
+      : await this.userService.getById(userOrId);
+
+    const [logs, favorites, lastSeen] = await Promise.all([
+      this.userService.findUserLogs(user, listLimit),
+      this.userService.favoriteList(user, listLimit),
+      this.userService.lastSeenList(user, listLimit),
+    ]);
+
+    const uniqueSeen = new Map<string, Book>();
+    for (const b of [
+      ...favorites.map((f) => f.book),
+      ...lastSeen.map((l) => l.book),
+    ]) {
+      uniqueSeen.set(b.id, b);
+    }
+
+    const searchTexts = new Set(logs.map((l) => l.queryText));
+
+    const limit = pLimit(3);
+
+    const favEmbeddings = await Promise.all(
+      [...uniqueSeen.values()].map((b) =>
+        limit(() =>
+          this.openAiService
+            .generateEmbedding(`${b.title} ${b.description ?? ''}`)
+            .catch((e) => {
+              console.error('Fav embedding error:', e.message);
+              return null;
+            }),
+        ),
+      ),
+    );
+
+    const logEmbeddings = await Promise.all(
+      [...searchTexts].map((t) =>
+        limit(() =>
+          this.openAiService.generateEmbedding(t).catch((e) => {
+            console.error('Log embedding error:', e.message);
+            return null;
+          }),
+        ),
+      ),
+    );
+
+    const favVector = this.localEmbeddingService.meanVector(
+      favEmbeddings.filter(Boolean),
+    );
+    const logVector = this.localEmbeddingService.meanVector(
+      logEmbeddings.filter(Boolean),
+    );
+
+    const userVector = this.localEmbeddingService.meanVector([
+      { vector: favVector, weight: 0.7 },
+      { vector: logVector, weight: 0.3 },
+    ]);
+
+    return userVector;
+  }
+
   async recommendForUser(
     userOrId: string | User,
     queryDto: BookQueryDto,
@@ -1055,6 +1120,7 @@ export class BookService {
 
     return await this.searchByVector(userVector, queryDto);
   }
+
   private async executeWithPagination(
     qb: SelectQueryBuilder<Book>,
     queryDto: BookQueryDto,
