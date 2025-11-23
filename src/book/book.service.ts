@@ -719,273 +719,119 @@ export class BookService {
     query: string,
     queryDto: BookQueryDto,
   ): Promise<ItemsWithTotal<Book>> {
-    const embeddingVector = Array.isArray(embedding)
-      ? `[${embedding.join(',')}]`
-      : embedding;
+    const embeddingVector = `[${embedding.join(',')}]`;
+    const similarityThreshold = queryDto.similarityThreshold ?? 0.35;
 
-    const { params, filterConditions, nextParamIndex } = this.buildFilters(
+    // Build filter conditions (if you have filters in queryDto)
+    const { params: filterParams, filterConditions } = this.buildFilters(
       queryDto,
       3,
     );
 
-    const allParams = [embeddingVector, query, ...params];
-
-    const fuzzyCondition = `
-      (b.title % $2 OR b.description % $2 OR EXISTS (
-      SELECT 1 FROM book_authors ba 
-      JOIN authors a ON a.id = ba.author 
-      WHERE ba.book = b.id AND a.name % $2
-    ) OR EXISTS (
-      SELECT 1 FROM book_categories bc 
-      JOIN categories c ON c.id = bc.category 
-      WHERE bc.book = b.id AND c.name % $2
-    ) OR EXISTS (
-      SELECT 1 FROM book_chunks bc 
-      WHERE bc."bookId" = b.id AND bc.content % $2
-    ))`;
-
-    let currentNextParamIndex = nextParamIndex;
-    if (
-      queryDto.similarityThreshold !== undefined &&
-      queryDto.similarityThreshold !== null
-    ) {
-      filterConditions.push(`
-        EXISTS (
-        SELECT 1 FROM book_chunks bc 
-        WHERE bc."bookId" = b.id 
-        AND bc.embedding IS NOT NULL
-        AND (1 - (bc.embedding <=> $1::vector)) >= $${currentNextParamIndex}
-      )`);
-      allParams.push(queryDto.similarityThreshold);
-      currentNextParamIndex++;
-    }
-
-    if (
-      queryDto.fuzzyThreshold !== undefined &&
-      queryDto.fuzzyThreshold !== null
-    ) {
-      filterConditions.push(`
-        GREATEST(
-        similarity(b.title, $2),
-        COALESCE(similarity(b.description, $2), 0),
-        COALESCE((
-          SELECT MAX(similarity(a.name, $2))
-          FROM book_authors ba
-          JOIN authors a ON a.id = ba.author
-          WHERE ba.book = b.id
-        ), 0),
-        COALESCE((
-          SELECT MAX(similarity(c.name, $2))
-          FROM book_categories bc
-          JOIN categories c ON c.id = bc.category
-          WHERE bc.book = b.id
-        ), 0),
-        COALESCE((
-          SELECT MAX(similarity(bc.content, $2))
-          FROM book_chunks bc
-          WHERE bc."bookId" = b.id
-        ), 0)
-      ) >= $${currentNextParamIndex}`);
-      allParams.push(queryDto.fuzzyThreshold);
-      currentNextParamIndex++;
-    }
-
-    filterConditions.push(`
-        EXISTS (
-        SELECT 1 FROM book_chunks bc 
-        WHERE bc."bookId" = b.id AND bc.embedding IS NOT NULL
-      )`);
-
-    const whereClause =
-      filterConditions.length > 0
-        ? `WHERE ${fuzzyCondition} AND ${filterConditions.join(' AND ')}`
-        : `WHERE ${fuzzyCondition}`;
-
+    const allParams = [embeddingVector, query, ...filterParams];
     const limitParamIndex = allParams.length + 1;
     const offsetParamIndex = allParams.length + 2;
     allParams.push(queryDto.limit, queryDto.skip);
 
     const sql = `
-      WITH ranked_chunks AS (
-        SELECT 
-          bc."bookId",
-          bc.embedding,
-          (1 - (bc.embedding <=> $1::vector)) AS "similarityScore",
-          (bc.embedding <-> $1::vector) AS distance,
-          ROW_NUMBER() OVER (PARTITION BY bc."bookId" ORDER BY bc.embedding <-> $1::vector) as rn
-        FROM book_chunks bc
-        WHERE bc.embedding IS NOT NULL
-      ),
-      scored_books AS (
-        SELECT 
-          b.id, 
-          b.title, 
-          b."publishedDate", 
-          b."imageUrl", 
-          b."publisherId",
-          rc."similarityScore",
-          rc.distance,
-          GREATEST(
-            similarity(b.title, $2),
-            COALESCE(similarity(b.description, $2), 0),
-            COALESCE((
-              SELECT MAX(similarity(a.name, $2))
-              FROM book_authors ba
-              JOIN authors a ON a.id = ba.author
-              WHERE ba.book = b.id
-            ), 0),
-            COALESCE((
-              SELECT MAX(similarity(c.name, $2))
-              FROM book_categories bc
-              JOIN categories c ON c.id = bc.category
-              WHERE bc.book = b.id
-            ), 0),
-            COALESCE((
-              SELECT MAX(similarity(chk.content, $2))
-              FROM book_chunks chk
-              WHERE chk."bookId" = b.id
-            ), 0)
-          ) AS "fuzzyScore"
-        FROM books b
-        INNER JOIN ranked_chunks rc ON rc."bookId" = b.id AND rc.rn = 1
-        ${whereClause}
-      ),
-      filtered_books AS (
-        SELECT 
-          *,
-          ("similarityScore" * 0.6 + "fuzzyScore" * 0.4) AS "hybridScore"
-        FROM scored_books
-        ORDER BY "hybridScore" DESC
-        LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
-      )
-      SELECT 
-        fb.id, 
-        fb.title, 
-        fb."publishedDate", 
-        fb."imageUrl",
-        fb."similarityScore", 
-        fb.distance, 
-        fb."fuzzyScore",
-        fb."hybridScore",
-        COALESCE(
-          JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
-          FILTER (WHERE a.id IS NOT NULL), '[]'
-        ) AS authors,
-        COALESCE(
-          JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
-          FILTER (WHERE c.id IS NOT NULL), '[]'
-        ) AS categories,
-        jsonb_build_object('id', p.id, 'name', p.name) AS publisher
-      FROM filtered_books fb
-      LEFT JOIN book_authors ba ON ba.book = fb.id
-      LEFT JOIN authors a ON a.id = ba.author
-      LEFT JOIN book_categories bcat ON bcat.book = fb.id
-      LEFT JOIN categories c ON c.id = bcat.category
-      LEFT JOIN publishers p ON p.id = fb."publisherId"
-      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", 
-              fb."similarityScore", fb.distance, fb."fuzzyScore", fb."hybridScore", 
-              p.id, p.name
-      ORDER BY fb."hybridScore" DESC
-    `;
+    -- Step 1: Vector top candidates
+    WITH vector_candidates AS (
+      SELECT
+        bc."bookId",
+        MAX(1 - (bc.embedding <=> $1::vector)) AS "vectorScore"
+      FROM book_chunks bc
+      WHERE bc.embedding IS NOT NULL
+      GROUP BY bc."bookId"
+      HAVING MAX(1 - (bc.embedding <=> $1::vector)) >= ${similarityThreshold}
+      ORDER BY "vectorScore" DESC
+    ),
+
+    -- Step 2: Text top candidates
+    text_candidates AS (
+      SELECT
+        b.id AS "bookId",
+        GREATEST(
+          similarity(b.title, $2),
+          COALESCE(similarity(b.description, $2), 0),
+          COALESCE((
+            SELECT MAX(similarity(a.name, $2))
+            FROM book_authors ba
+            JOIN authors a ON a.id = ba.author
+            WHERE ba.book = b.id
+          ), 0),
+          COALESCE((
+            SELECT MAX(similarity(c.name, $2))
+            FROM book_categories bc
+            JOIN categories c ON c.id = bc.category
+            WHERE bc.book = b.id
+          ), 0),
+          COALESCE((
+            SELECT MAX(similarity(chk.content, $2))
+            FROM book_chunks chk
+            WHERE chk."bookId" = b.id
+          ), 0)
+        ) AS "textScore"
+      FROM books b
+      WHERE b.title % $2 OR b.description % $2
+    ),
+
+    -- Step 3: Union candidates
+    candidates AS (
+      SELECT vc."bookId", vc."vectorScore", COALESCE(tc."textScore", 0) AS "textScore"
+      FROM vector_candidates vc
+      LEFT JOIN text_candidates tc ON tc."bookId" = vc."bookId"
+      UNION
+      SELECT tc."bookId", COALESCE(vc."vectorScore", 0) AS "vectorScore", tc."textScore"
+      FROM text_candidates tc
+      LEFT JOIN vector_candidates vc ON vc."bookId" = tc."bookId"
+    ),
+
+    -- Step 4: Compute hybrid score
+    scored_books AS (
+      SELECT
+        b.id, b.title, b.description, b."publishedDate", b."imageUrl", b."publisherId",
+        c."vectorScore", c."textScore",
+        (c."vectorScore" * 0.6 + c."textScore" * 0.4) AS "hybridScore"
+      FROM candidates c
+      JOIN books b ON b.id = c."bookId"
+      ${filterConditions.length ? `WHERE ${filterConditions.join(' AND ')}` : ''}
+    ),
+
+    -- Step 5: Apply pagination and compute total
+    paged_books AS (
+      SELECT *, COUNT(*) OVER() AS total_count
+      FROM scored_books
+      ORDER BY "hybridScore" DESC
+      LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
+    )
+
+    -- Step 6: Fetch authors, categories, publisher
+    SELECT
+      pb.id, pb.title, pb.description, pb."publishedDate", pb."imageUrl",
+      pb."vectorScore", pb."textScore", pb."hybridScore", pb.total_count AS total,
+      COALESCE(JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
+        FILTER (WHERE a.id IS NOT NULL), '[]') AS authors,
+      COALESCE(JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
+        FILTER (WHERE c.id IS NOT NULL), '[]') AS categories,
+      jsonb_build_object('id', p.id, 'name', p.name) AS publisher
+    FROM paged_books pb
+    LEFT JOIN book_authors ba ON ba.book = pb.id
+    LEFT JOIN authors a ON a.id = ba.author
+    LEFT JOIN book_categories bcat ON bcat.book = pb.id
+    LEFT JOIN categories c ON c.id = bcat.category
+    LEFT JOIN publishers p ON p.id = pb."publisherId"
+    GROUP BY pb.id, pb.title, pb.description, pb."publishedDate", pb."imageUrl",
+             pb."vectorScore", pb."textScore", pb."hybridScore", pb.total_count,
+             p.id, p.name
+    ORDER BY pb."hybridScore" DESC
+  `;
 
     const books = await this.dataSource.query(sql, allParams);
 
-    let countParamIndex = 1;
-    const countParams = [query];
+    // total_count is the same for all rows
+    const total = books[0]?.total ?? 0;
 
-    const needsEmbedding =
-      queryDto.similarityThreshold !== undefined &&
-      queryDto.similarityThreshold !== null;
-
-    let embeddingParamIndex = null;
-    if (needsEmbedding) {
-      countParams.push(embeddingVector);
-      embeddingParamIndex = ++countParamIndex;
-    }
-
-    const {
-      params: countFilterParams,
-      filterConditions: countFilterConditions,
-    } = this.buildFilters(queryDto, countParamIndex + 1);
-
-    countParams.push(...countFilterParams);
-    countParamIndex += countFilterParams.length;
-
-    const countFuzzyCondition = `
-      (b.title % $1 OR b.description % $1 OR EXISTS (
-      SELECT 1 FROM book_authors ba 
-      JOIN authors a ON a.id = ba.author 
-      WHERE ba.book = b.id AND a.name % $1
-    ) OR EXISTS (
-      SELECT 1 FROM book_categories bc 
-      JOIN categories c ON c.id = bc.category 
-      WHERE bc.book = b.id AND c.name % $1
-    ) OR EXISTS (
-      SELECT 1 FROM book_chunks bc 
-      WHERE bc."bookId" = b.id AND bc.content % $1
-    ))`;
-
-    if (needsEmbedding) {
-      countFilterConditions.push(`
-        EXISTS (
-        SELECT 1 FROM book_chunks bc 
-        WHERE bc."bookId" = b.id 
-        AND bc.embedding IS NOT NULL
-        AND (1 - (bc.embedding <=> $${embeddingParamIndex}::vector)) >= $${countParamIndex + 1}
-      )`);
-      countParams.push(queryDto.similarityThreshold.toString());
-      countParamIndex++;
-    } else {
-      countFilterConditions.push(`
-          EXISTS (
-          SELECT 1 FROM book_chunks bc 
-          WHERE bc."bookId" = b.id AND bc.embedding IS NOT NULL
-        )`);
-    }
-
-    if (
-      queryDto.fuzzyThreshold !== undefined &&
-      queryDto.fuzzyThreshold !== null
-    ) {
-      countFilterConditions.push(`
-        GREATEST(
-        similarity(b.title, $1),
-        COALESCE(similarity(b.description, $1), 0),
-        COALESCE((
-          SELECT MAX(similarity(a.name, $1))
-          FROM book_authors ba
-          JOIN authors a ON a.id = ba.author
-          WHERE ba.book = b.id
-        ), 0),
-        COALESCE((
-          SELECT MAX(similarity(c.name, $1))
-          FROM book_categories bc
-          JOIN categories c ON c.id = bc.category
-          WHERE bc.book = b.id
-        ), 0),
-        COALESCE((
-          SELECT MAX(similarity(chk.content, $1))
-          FROM book_chunks chk
-          WHERE chk."bookId" = b.id
-        ), 0)
-      ) >= $${countParamIndex + 1}`);
-      countParams.push(queryDto.fuzzyThreshold.toString());
-    }
-
-    const countWhereClause =
-      countFilterConditions.length > 0
-        ? `WHERE ${countFuzzyCondition} AND ${countFilterConditions.join(' AND ')}`
-        : `WHERE ${countFuzzyCondition}`;
-
-    const countSql = `
-      SELECT COUNT(DISTINCT b.id) AS total
-      FROM books b
-      ${countWhereClause}
-    `;
-
-    const totalRes = await this.dataSource.query(countSql, countParams);
-
-    return { items: books, total: Number(totalRes[0]?.total || 0) };
+    return { items: books, total };
   }
 
   async userInterestVector(

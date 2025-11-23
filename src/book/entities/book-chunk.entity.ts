@@ -3,6 +3,7 @@ import {
   BeforeUpdate,
   Column,
   Entity,
+  Index,
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
@@ -10,6 +11,8 @@ import {
 import { Book } from '../../book/entities/book.entity';
 
 @Entity('book_chunks')
+@Index('idx_book_chunks_content_trgm', { synchronize: false })
+@Index('idx_book_chunks_embedding_hnsw', { synchronize: false })
 export class BookChunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;

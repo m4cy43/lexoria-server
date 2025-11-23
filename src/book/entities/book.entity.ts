@@ -1,6 +1,7 @@
 import {
   Column,
   Entity,
+  Index,
   JoinTable,
   ManyToMany,
   ManyToOne,
@@ -14,6 +15,8 @@ import { Publisher } from '../../publisher/entities/publisher.entity';
 import { BookChunk } from './book-chunk.entity';
 
 @Entity('books')
+@Index('idx_books_title_trgm', { synchronize: false })
+@Index('idx_books_description_trgm', { synchronize: false })
 export class Book {
   @PrimaryGeneratedColumn('uuid')
   id: string;
