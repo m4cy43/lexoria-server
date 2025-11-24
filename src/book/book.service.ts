@@ -920,6 +920,195 @@ export class BookService {
     return { items: books, total };
   }
 
+  async searchByHybridFast(
+    embedding: number[],
+    query: string,
+    queryDto: BookQueryDto,
+  ): Promise<ItemsWithTotal<Book>> {
+    const embeddingVector = `[${embedding.join(',')}]`;
+
+    // Розбиваємо запит на слова
+    const words = query
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 1);
+
+    if (!words.length) {
+      return this.searchByVector(embedding, queryDto);
+    }
+
+    const { params: filterParams, filterConditions } = this.buildFilters(
+      queryDto,
+      3,
+    );
+
+    const textParams: string[] = words.map((w) => `%${w}%`);
+
+    const maxTextScore = 5 * words.length;
+
+    const allParams = [
+      embeddingVector,
+      ...textParams,
+      ...filterParams,
+      queryDto.limit,
+      queryDto.skip,
+      maxTextScore,
+    ];
+
+    const wordConditions = words
+      .map((_, i) => {
+        const idx = i + 2; // $2, $3, $4...
+        return `
+        (b.title ILIKE $${idx}
+        OR b.description ILIKE $${idx}
+        OR EXISTS (
+          SELECT 1 FROM book_authors ba 
+          JOIN authors a ON a.id = ba.author 
+          WHERE ba.book = b.id AND a.name ILIKE $${idx}
+        )
+        OR EXISTS (
+          SELECT 1 FROM book_categories bc 
+          JOIN categories c ON c.id = bc.category 
+          WHERE bc.book = b.id AND c.name ILIKE $${idx}
+        )
+        OR EXISTS (
+          SELECT 1 FROM book_chunks chk 
+          WHERE chk."bookId" = b.id AND chk.content ILIKE $${idx}
+        ))`;
+      })
+      .join(' AND ');
+
+    const textScoreExpr = words
+      .map((_, i) => {
+        const idx = i + 2;
+        return `
+        (CASE WHEN b.title ILIKE $${idx} THEN 1 ELSE 0 END +
+        CASE WHEN b.description ILIKE $${idx} THEN 1 ELSE 0 END +
+        (SELECT COUNT(*) FROM book_authors ba 
+            JOIN authors a ON a.id = ba.author 
+          WHERE ba.book = b.id AND a.name ILIKE $${idx}) +
+        (SELECT COUNT(*) FROM book_categories bc 
+            JOIN categories c ON c.id = bc.category 
+          WHERE bc.book = b.id AND c.name ILIKE $${idx}) +
+        (SELECT COUNT(*) FROM book_chunks chk 
+          WHERE chk."bookId" = b.id AND chk.content ILIKE $${idx})
+        )`;
+      })
+      .join(' + ');
+
+    const hybridWeightVector = 0.6;
+    const hybridWeightText = 0.4;
+
+    const filterSQL = filterConditions.length
+      ? `AND ${filterConditions.join(' AND ')}`
+      : '';
+
+    const sql = `
+      -- 1) Vector candidates
+      WITH vector_candidates AS (
+        SELECT 
+          bc."bookId",
+          MAX(1 - (bc.embedding <=> $1::vector)) AS "vectorScore"
+        FROM book_chunks bc
+        WHERE bc.embedding IS NOT NULL
+        GROUP BY bc."bookId"
+      ),
+
+      -- 2) Text candidates with score
+      text_candidates AS (
+        SELECT 
+          b.id AS "bookId",
+          (${textScoreExpr}) AS "textScore"
+        FROM books b
+        WHERE ${wordConditions}
+      ),
+
+      -- 3) Union both candidate pools
+      candidates AS (
+        SELECT 
+          COALESCE(vc."bookId", tc."bookId") AS "bookId",
+          COALESCE(vc."vectorScore", 0) AS "vectorScore",
+          COALESCE(tc."textScore", 0) AS "textScore"
+        FROM vector_candidates vc
+        FULL JOIN text_candidates tc ON tc."bookId" = vc."bookId"
+      ),
+
+      -- 4) Books + scores
+      scored_books AS (
+        SELECT 
+          b.id,
+          b.title,
+          b."publishedDate",
+          b."imageUrl",
+          b."publisherId",
+          c."vectorScore",
+          c."textScore",
+
+          -- Нормалізований textScore 0..1
+          (c."textScore"::float / $${allParams.length}) AS "normalizedTextScore",
+
+          -- Hybrid score 0..1
+          (
+            c."vectorScore" * ${hybridWeightVector} +
+            (c."textScore"::float / $${allParams.length}) * ${hybridWeightText}
+          ) AS "hybridScore"
+
+        FROM candidates c
+        JOIN books b ON b.id = c."bookId"
+        WHERE 1=1 ${filterSQL}
+      ),
+
+      -- 5) Pagination
+      paged_books AS (
+        SELECT *, COUNT(*) OVER() AS total_count
+        FROM scored_books
+        ORDER BY "hybridScore" DESC
+        LIMIT $${allParams.length - 2} OFFSET $${allParams.length - 1}
+      )
+
+      -- 6) Authors, categories, publisher
+      SELECT
+        pb.id,
+        pb.title,
+        pb."publishedDate",
+        pb."imageUrl",
+
+        pb."vectorScore",
+        pb."textScore",
+        pb."normalizedTextScore",
+        pb."hybridScore",
+
+        pb.total_count AS total,
+
+        COALESCE(JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
+          FILTER (WHERE a.id IS NOT NULL), '[]') AS authors,
+
+        COALESCE(JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
+          FILTER (WHERE c.id IS NOT NULL), '[]') AS categories,
+
+        jsonb_build_object('id', p.id, 'name', p.name) AS publisher
+
+      FROM paged_books pb
+      LEFT JOIN book_authors ba ON ba.book = pb.id
+      LEFT JOIN authors a ON a.id = ba.author
+      LEFT JOIN book_categories bcat ON bcat.book = pb.id
+      LEFT JOIN categories c ON c.id = bcat.category
+      LEFT JOIN publishers p ON p.id = pb."publisherId"
+
+      GROUP BY 
+        pb.id, pb.title, pb."publishedDate", pb."imageUrl",
+        pb."vectorScore", pb."textScore", pb."normalizedTextScore",
+        pb."hybridScore",
+        pb.total_count, p.id, p.name
+
+      ORDER BY pb."hybridScore" DESC;
+    `;
+
+    const books = await this.dataSource.query(sql, allParams);
+    const total = books[0]?.total ?? 0;
+    return { items: books, total };
+  }
+
   async userInterestVector(
     userOrId: string | User,
     listLimit = 5,

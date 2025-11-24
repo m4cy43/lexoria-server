@@ -14,6 +14,7 @@ export enum SearchType {
   VECTOR = 'vector',
   FUZZY = 'fuzzy',
   HYBRID = 'hybrid',
+  HYBRID_FAST = 'hybrid-fast',
   RAG = 'rag',
 }
 

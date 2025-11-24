@@ -65,6 +65,15 @@ export class BookController {
       list = await this.bookService.searchByVector(embedding, query);
     } else if (searchType === SearchType.FUZZY) {
       list = await this.bookService.searchByFuzzy(search, query);
+    } else if (searchType === SearchType.HYBRID_FAST) {
+      const userInterestVector =
+        await this.bookService.userInterestVector(user);
+      const searchVector = await this.openAiService.generateEmbedding(search);
+      const embedding = await this.localEmbeddingService.meanVector([
+        { vector: searchVector, weight: 0.8 },
+        { vector: userInterestVector, weight: 0.2 },
+      ]);
+      list = await this.bookService.searchByHybrid(embedding, search, query);
     } else if (searchType === SearchType.HYBRID) {
       const userInterestVector =
         await this.bookService.userInterestVector(user);
