@@ -73,7 +73,11 @@ export class BookController {
         { vector: searchVector, weight: 0.8 },
         { vector: userInterestVector, weight: 0.2 },
       ]);
-      list = await this.bookService.searchByHybrid(embedding, search, query);
+      list = await this.bookService.searchByHybridFast(
+        embedding,
+        search,
+        query,
+      );
     } else if (searchType === SearchType.HYBRID) {
       const userInterestVector =
         await this.bookService.userInterestVector(user);
