@@ -581,7 +581,9 @@ export class BookService {
     );
 
     const allParams = [query, ...params];
+    let currentNextParamIndex = nextParamIndex;
 
+    // Build filter conditions
     const fuzzyCondition = `
       (b.title % $1 OR b.description % $1 OR EXISTS (
       SELECT 1 FROM book_authors ba 
@@ -596,7 +598,6 @@ export class BookService {
       WHERE bc."bookId" = b.id AND bc.content % $1
     ))`;
 
-    let currentNextParamIndex = nextParamIndex;
     if (
       queryDto.fuzzyThreshold !== undefined &&
       queryDto.fuzzyThreshold !== null
@@ -638,6 +639,7 @@ export class BookService {
 
     const sql = `
       WITH scored_books AS (
+        -- Calculate score ONCE per book
         SELECT 
           b.id, 
           b.title, 
@@ -652,23 +654,27 @@ export class BookService {
               FROM book_authors ba
               JOIN authors a ON a.id = ba.author
               WHERE ba.book = b.id
+              LIMIT 1
             ), 0),
             COALESCE((
               SELECT MAX(similarity(c.name, $1))
               FROM book_categories bc
               JOIN categories c ON c.id = bc.category
               WHERE bc.book = b.id
+              LIMIT 1
             ), 0),
             COALESCE((
               SELECT MAX(similarity(bc.content, $1))
               FROM book_chunks bc
               WHERE bc."bookId" = b.id
+              LIMIT 1
             ), 0)
           ) AS "fuzzyScore"
         FROM books b
         ${whereClause}
       ),
-      filtered_books AS (
+      paginated_books AS (
+        -- Paginate BEFORE expensive JOINs and aggregation
         SELECT 
           id, title, "publishedDate", "imageUrl", "publisherId", "fuzzyScore"
         FROM scored_books
@@ -676,11 +682,11 @@ export class BookService {
         LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       )
       SELECT 
-        fb.id, 
-        fb.title, 
-        fb."publishedDate", 
-        fb."imageUrl",
-        fb."fuzzyScore",
+        pb.id, 
+        pb.title, 
+        pb."publishedDate", 
+        pb."imageUrl",
+        pb."fuzzyScore",
         COALESCE(
           JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
           FILTER (WHERE a.id IS NOT NULL), '[]'
@@ -690,14 +696,14 @@ export class BookService {
           FILTER (WHERE c.id IS NOT NULL), '[]'
         ) AS categories,
         jsonb_build_object('id', p.id, 'name', p.name) AS publisher
-      FROM filtered_books fb
-      LEFT JOIN book_authors ba ON ba.book = fb.id
+      FROM paginated_books pb
+      LEFT JOIN book_authors ba ON ba.book = pb.id
       LEFT JOIN authors a ON a.id = ba.author
-      LEFT JOIN book_categories bcat ON bcat.book = fb.id
+      LEFT JOIN book_categories bcat ON bcat.book = pb.id
       LEFT JOIN categories c ON c.id = bcat.category
-      LEFT JOIN publishers p ON p.id = fb."publisherId"
-      GROUP BY fb.id, fb.title, fb."publishedDate", fb."imageUrl", fb."fuzzyScore", p.id, p.name
-      ORDER BY fb."fuzzyScore" DESC
+      LEFT JOIN publishers p ON p.id = pb."publisherId"
+      GROUP BY pb.id, pb.title, pb."publishedDate", pb."imageUrl", pb."fuzzyScore", p.id, p.name
+      ORDER BY pb."fuzzyScore" DESC
     `;
 
     const books = await this.dataSource.query(sql, allParams);
