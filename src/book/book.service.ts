@@ -344,29 +344,109 @@ export class BookService {
   }
 
   async searchByText(queryDto: BookQueryDto): Promise<ItemsWithTotal<Book>> {
-    const qb = this.buildBaseQuery(queryDto);
+    const { params, filterConditions, nextParamIndex } = this.buildFilters(
+      queryDto,
+      1,
+    );
 
-    qb.select([
-      'book.id',
-      'book.title',
-      'book.publishedDate',
-      'book.imageUrl',
-      'author.id',
-      'author.name',
-      'category.id',
-      'category.name',
-      'publisher.id',
-      'publisher.name',
-    ]);
+    const searchWords = queryDto.search
+      ? queryDto.search.trim().split(/\s+/)
+      : [];
 
-    if (queryDto.search) {
-      qb.leftJoin('book.chunks', 'chunk').andWhere(
-        '(book.title ILIKE :search OR book.description ILIKE :search OR author.name ILIKE :search OR chunk.content ILIKE :search)',
-        { search: `%${queryDto.search}%` },
-      );
+    let currentIndex = nextParamIndex;
+    const searchConditions: string[] = [];
+
+    for (const word of searchWords) {
+      searchConditions.push(`
+        (
+          b.title ILIKE $${currentIndex}
+          OR b.description ILIKE $${currentIndex}
+          OR EXISTS (
+            SELECT 1 FROM book_authors ba 
+            JOIN authors a ON a.id = ba.author
+            WHERE ba.book = b.id AND a.name ILIKE $${currentIndex}
+          )
+          OR EXISTS (
+            SELECT 1 FROM book_categories bc
+            JOIN categories c ON c.id = bc.category
+            WHERE bc.book = b.id AND c.name ILIKE $${currentIndex}
+          )
+          OR EXISTS (
+            SELECT 1 FROM book_chunks ch
+            WHERE ch."bookId" = b.id AND ch.content ILIKE $${currentIndex}
+          )
+        )`);
+      params.push(`%${word}%`);
+      currentIndex++;
     }
 
-    return this.executeWithPagination(qb, queryDto);
+    const whereParts = [];
+
+    if (searchConditions.length > 0) {
+      whereParts.push(searchConditions.join(' AND '));
+    }
+    if (filterConditions.length > 0) {
+      whereParts.push(filterConditions.join(' AND '));
+    }
+
+    const whereClause =
+      whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const limitIndex = params.length + 1;
+    const offsetIndex = params.length + 2;
+
+    params.push(queryDto.limit);
+    params.push(queryDto.skip);
+
+    const sql = `
+      WITH filtered AS (
+        SELECT 
+          b.id,
+          b.title,
+          b."publishedDate",
+          b."imageUrl",
+          b."publisherId"
+        FROM books b
+        ${whereClause}
+        ORDER BY b.title ASC
+        LIMIT $${limitIndex} OFFSET $${offsetIndex}
+      )
+      SELECT 
+        f.id,
+        f.title,
+        f."publishedDate",
+        f."imageUrl",
+        COALESCE(
+          JSON_AGG(DISTINCT jsonb_build_object('id', a.id, 'name', a.name))
+          FILTER (WHERE a.id IS NOT NULL), '[]'
+        ) AS authors,
+        COALESCE(
+          JSON_AGG(DISTINCT jsonb_build_object('id', c.id, 'name', c.name))
+          FILTER (WHERE c.id IS NOT NULL), '[]'
+        ) AS categories,
+        jsonb_build_object('id', p.id, 'name', p.name) AS publisher
+      FROM filtered f
+      LEFT JOIN book_authors ba ON ba.book = f.id
+      LEFT JOIN authors a ON a.id = ba.author
+      LEFT JOIN book_categories bcat ON bcat.book = f.id
+      LEFT JOIN categories c ON c.id = bcat.category
+      LEFT JOIN publishers p ON p.id = f."publisherId"
+      GROUP BY f.id, f.title, f."publishedDate", f."imageUrl", p.id, p.name
+      ORDER BY f.title ASC
+    `;
+
+    const books = await this.dataSource.query(sql, params);
+
+    const countSql = `
+      SELECT COUNT(DISTINCT b.id) AS total
+      FROM books b
+      ${whereClause}
+    `;
+
+    const countParams = params.slice(0, -2);
+    const totalRes = await this.dataSource.query(countSql, countParams);
+
+    return { items: books, total: Number(totalRes[0]?.total || 0) };
   }
 
   private buildFilters(queryDto: BookQueryDto, startIndex = 1) {
