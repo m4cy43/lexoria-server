@@ -4,6 +4,9 @@ export class InitialSchema1752944553373 implements MigrationInterface {
   name = 'InitialSchema1752944553373';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS vector`);
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
+
     await queryRunner.query(
       `CREATE TABLE "authors" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying NOT NULL, CONSTRAINT "PK_d2ed02fabd9b52847ccb85e6b88" PRIMARY KEY ("id"))`,
     );
@@ -85,5 +88,8 @@ export class InitialSchema1752944553373 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "books"`);
     await queryRunner.query(`DROP TABLE "publishers"`);
     await queryRunner.query(`DROP TABLE "authors"`);
+
+    await queryRunner.query(`DROP EXTENSION IF EXISTS pg_trgm`);
+    await queryRunner.query(`DROP EXTENSION IF EXISTS vector`);
   }
 }

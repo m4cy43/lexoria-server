@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   postgres:
-    image: postgres:latest
+    image: ankane/pgvector:latest
     container_name: lexoria-postgres-db
     ports:
       - '${DB_PORT}:5432'

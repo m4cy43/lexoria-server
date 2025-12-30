@@ -18,8 +18,6 @@ export class JwtRefreshGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const token = this.extractToken(request);
 
-    console.log(token);
-
     if (!token) {
       throw new UnauthorizedException('Token not found');
     }

@@ -62,7 +62,6 @@ export class AuthController {
         expiresIn: this.refreshExpiresIn,
       }),
     ]);
-    console.log({ accessToken, refreshToken });
     return { accessToken, refreshToken };
   }
 
@@ -70,8 +69,9 @@ export class AuthController {
     return {
       httpOnly: true,
       maxAge: ms(expiresIn),
-      sameSite: 'lax',
-      secure: this.isProd,
+      sameSite: 'none',
+      // secure: this.isProd,
+      secure: true,
     };
   }
 
