@@ -16,4 +16,7 @@ export const createPostgresDataSourceOptions = (
   migrations: [join(__dirname, '../migrations/*{.ts,.js}')],
   synchronize: false,
   logging: true,
+  ssl: configService.get<boolean>('DB_SSL')
+    ? { rejectUnauthorized: true }
+    : false,
 });

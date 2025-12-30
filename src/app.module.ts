@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 
 import { AuthModule } from './auth/auth.module';
 import { AuthorModule } from './author/author.module';
@@ -14,6 +15,9 @@ import { UserModule } from './user/user.module';
   imports: [
     PostgresModule,
     ConfigModule.forRoot({ isGlobal: true }),
+    JwtModule.register({
+      global: true,
+    }),
     UserModule,
     AuthModule,
     BookModule,
